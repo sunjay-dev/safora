@@ -2,13 +2,9 @@ name: MongoDB Atlas Backup
 
 on:
   schedule:
-    # 00:00 UTC daily = 05:00 Pakistan Standard Time.
-    # Midnight UTC is peak load for GitHub's schedulers, so runs may start a few
-    # minutes late; it still runs once per day.
     - cron: "0 0 * * *"
   workflow_dispatch:
 
-# Never run two backups concurrently; queue instead of cancelling.
 concurrency:
   group: mongodb-backup
   cancel-in-progress: false
@@ -17,8 +13,6 @@ permissions:
   contents: read
 
 env:
-  # Pin MongoDB Database Tools. Bump after checking:
-  # https://www.mongodb.com/try/download/database-tools/releases/archive
   MDBTOOLS_VERSION: "100.15.0"
 
 jobs:
@@ -32,7 +26,6 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
-        # version is taken from the packageManager field in package.json
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -62,11 +55,16 @@ jobs:
       - name: Run backup
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           RETENTION_DAYS: ${{ vars.RETENTION_DAYS }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          BACKUP_PREFIX: ${{ vars.BACKUP_PREFIX }}
+          DUMP_TIMEOUT_MS: ${{ vars.DUMP_TIMEOUT_MS }}
+          ENCRYPT_TIMEOUT_MS: ${{ vars.ENCRYPT_TIMEOUT_MS }}
+          TOOL_CHECK_TIMEOUT_MS: ${{ vars.TOOL_CHECK_TIMEOUT_MS }}
+          MAX_BUFFER: ${{ vars.MAX_BUFFER }}
         run: node dist/main.js

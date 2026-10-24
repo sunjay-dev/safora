@@ -1,6 +1,5 @@
 import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
-import type { Config } from "../config.js";
-import { BACKUP_PREFIX } from "../constants.js";
+import type { Config } from "../config/env.config.js";
 
 /** Delete objects under backups/ whose LastModified is older than RETENTION_DAYS. */
 export async function pruneExpiredBackups(
@@ -16,7 +15,7 @@ export async function pruneExpiredBackups(
     const page = await client.send(
       new ListObjectsV2Command({
         Bucket: config.R2_BUCKET,
-        Prefix: BACKUP_PREFIX,
+        Prefix: config.BACKUP_PREFIX,
         ContinuationToken: continuationToken,
       }),
     );

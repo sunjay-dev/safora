@@ -1,12 +1,16 @@
-import { TOOL_CHECK_TIMEOUT_MS } from "./constants.js";
+import type { Config } from "./config/env.config.js";
 import { execDetail, execFileAsync } from "./lib/exec.js";
 import { fail } from "./logging.js";
 
 /** Verify a required external tool exists; returns its version line. */
-export async function assertToolInstalled(command: string, args: string[]): Promise<string> {
+export async function assertToolInstalled(
+  config: Config,
+  command: string,
+  args: string[],
+): Promise<string> {
   try {
     const { stdout } = await execFileAsync(command, args, {
-      timeout: TOOL_CHECK_TIMEOUT_MS,
+      timeout: config.TOOL_CHECK_TIMEOUT_MS,
       maxBuffer: 1024 * 1024,
     });
     return (stdout || "").split("\n")[0]?.trim() ?? "";

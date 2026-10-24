@@ -6,7 +6,7 @@ Work through this end-to-end **once, against a scratch cluster, before you actua
 
 - `age` and the **private key** (`key.txt`, the `AGE-SECRET-KEY-1...` line). The public key in `AGE_RECIPIENT` cannot decrypt.
 - MongoDB Database Tools (`mongorestore`).
-- R2 credentials with Object Read (the same bucket-scoped token works) and the AWS CLI — or download the object from the Cloudflare dashboard, or use rclone (config below).
+- R2 credentials with Object Read (the same bucket-scoped token works), the R2 endpoint URL (same value as your `R2_ENDPOINT` secret, e.g. `https://<account>.r2.cloudflarestorage.com`), and the AWS CLI — or download the object from the Cloudflare dashboard, or use rclone (config below).
 
 ## 1. Find the backup
 
@@ -14,7 +14,7 @@ The run's step summary (GitHub → Actions → the run) lists the object key and
 
 ```bash
 aws s3 ls s3://mongodb-backups/backups/ \
-  --endpoint-url https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+  --endpoint-url <R2_ENDPOINT>
 ```
 
 ## 2. Download, verify, decrypt
@@ -24,7 +24,7 @@ export AWS_ACCESS_KEY_ID=<R2 access key id>
 export AWS_SECRET_ACCESS_KEY=<R2 secret access key>
 
 aws s3 cp s3://mongodb-backups/backups/<OBJECT_KEY> ./backup.archive.gz.age \
-  --endpoint-url https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+  --endpoint-url <R2_ENDPOINT>
 
 # Integrity check — this hash is of the ENCRYPTED file, and matches both the
 # run's step summary and the object's x-amz-meta-sha-256 metadata.
@@ -44,7 +44,7 @@ type = s3
 provider = Cloudflare
 access_key_id = <R2 access key id>
 secret_access_key = <R2 secret access key>
-endpoint = https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+endpoint = <R2_ENDPOINT>
 acl = private
 no_check_bucket = true
 ```

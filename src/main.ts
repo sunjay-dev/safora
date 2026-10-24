@@ -13,8 +13,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "./config.js";
-import { BACKUP_PREFIX } from "./constants.js";
+import { loadConfig } from "./config/env.config.js";
 import { mib, objectTimestamp } from "./lib/format.js";
 import { logger, sanitize, setRedactionSecret } from "./logging.js";
 import { runDump } from "./steps/dump.js";
@@ -28,14 +27,15 @@ import { uploadAndVerify } from "./storage/upload.js";
 async function main(): Promise<void> {
   const config = loadConfig();
   setRedactionSecret(config.MONGODB_URI);
+  logger.level = config.LOG_LEVEL;
 
-  const mongodumpVersion = await assertToolInstalled("mongodump", ["--version"]);
-  const ageVersion = await assertToolInstalled("age", ["--version"]);
+  const mongodumpVersion = await assertToolInstalled(config, "mongodump", ["--version"]);
+  const ageVersion = await assertToolInstalled(config, "age", ["--version"]);
   logger.info({ mongodump: mongodumpVersion, age: ageVersion }, "toolchain ready");
   logger.info(
     {
       bucket: config.R2_BUCKET,
-      prefix: BACKUP_PREFIX,
+      prefix: config.BACKUP_PREFIX,
       retentionDays: config.RETENTION_DAYS,
     },
     "backup target",
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
 
   const workDir = await mkdtemp(join(tmpdir(), "mongodb-backup-"));
   const client = buildS3Client(config);
-  const objectKey = `${BACKUP_PREFIX}mongodb-${objectTimestamp()}.archive.gz.age`;
+  const objectKey = `${config.BACKUP_PREFIX}mongodb-${objectTimestamp()}.archive.gz.age`;
 
   try {
     const dump = await runDump(config, workDir);

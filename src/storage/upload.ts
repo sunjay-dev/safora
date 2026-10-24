@@ -2,7 +2,7 @@ import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
-import type { Config } from "../config.js";
+import type { Config } from "../config/env.config.js";
 import { sha256File } from "../lib/hash.js";
 import { fail } from "../logging.js";
 

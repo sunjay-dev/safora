@@ -25,8 +25,8 @@ mongodb-backups/
 ├── .github/workflows/backup.yml   # scheduler: daily 00:00 UTC + manual dispatch
 ├── src/
 │   ├── main.ts                    # pipeline orchestration + top-level error handling
-│   ├── config.ts                  # Valibot schema: validates all env vars in one pass
-│   ├── constants.ts               # prefixes and timeouts
+│   ├── config/
+│   │   └── env.config.ts          # Valibot schema: required secrets + tunables with defaults
 │   ├── logging.ts                 # log + fail + URI redaction
 │   ├── summary.ts                 # GitHub Actions step summary writer
 │   ├── tools.ts                   # mongodump/age preflight checks
@@ -56,8 +56,8 @@ mongodb-backups/
    - the `# public key: age1...` line → GitHub secret `AGE_RECIPIENT`
    - the `AGE-SECRET-KEY-1...` private line → store offline (password manager / offline media). **If you lose it, every backup is unrecoverable.** Never commit it.
 3. **R2** — create the bucket `mongodb-backups`; then R2 → Manage R2 API Tokens → Create API Token → permission *Object Read & Write*, scope *apply to specific bucket only* → `mongodb-backups`. Note the Access Key ID and Secret Access Key.
-4. **GitHub secrets** (Settings → Secrets and variables → Actions → *Secrets*): `MONGODB_URI`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `AGE_RECIPIENT`. The Account ID is on the R2 overview page.
-5. **GitHub variables** (same page → *Variables*): `R2_BUCKET` = `mongodb-backups`. Optional: `RETENTION_DAYS` (default 30).
+4. **GitHub secrets** (Settings → Secrets and variables → Actions → *Secrets*): `MONGODB_URI`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `AGE_RECIPIENT`. Build the endpoint as `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` (Account ID is on the R2 overview page; EU-jurisdiction buckets use `https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com`).
+5. **GitHub variables** (same page → *Variables*): `R2_BUCKET` = `mongodb-backups`. Everything else is optional with sane defaults, set as repository variables of the same name: `RETENTION_DAYS` (30), `LOG_LEVEL` (info), `BACKUP_PREFIX` (backups/), `DUMP_TIMEOUT_MS` (1200000), `ENCRYPT_TIMEOUT_MS` (600000), `TOOL_CHECK_TIMEOUT_MS` (30000), `MAX_BUFFER` (10485760). See `.env.example` for what each does.
 6. **Atlas** — dedicated backup user with the built-in `backup` role. Network Access: GitHub-hosted runners use rotating IPs, so either allow `0.0.0.0/0` (acceptable here because the user is limited to the backup role and the SRV string is SCRAM-protected) or self-host a runner with a static IP you can allowlist. Take the SRV connection string for that user → secret `MONGODB_URI`.
 7. **First run** — Actions → **MongoDB Atlas Backup** → Run workflow.
 
@@ -91,7 +91,7 @@ pnpm run backup | pnpm dlx pino-pretty
 
 ```bash
 aws s3 cp s3://mongodb-backups/backups/<OBJECT_KEY> backup.archive.gz.age \
-  --endpoint-url https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+  --endpoint-url <R2_ENDPOINT>
 
 age -d -i key.txt -o dump.archive.gz backup.archive.gz.age
 ```

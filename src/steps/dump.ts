@@ -1,7 +1,6 @@
 import { chmod, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Config } from "../config.js";
-import { DUMP_TIMEOUT_MS, MAX_BUFFER } from "../constants.js";
+import type { Config } from "../config/env.config.js";
 import { execDetail, execFileAsync } from "../lib/exec.js";
 import { fail } from "../logging.js";
 
@@ -22,7 +21,7 @@ export async function runDump(
       "mongodump",
       // --oplog gives a point-in-time snapshot; requires a replica set (Atlas always is).
       ["--config", dumpConfigPath, `--archive=${archivePath}`, "--gzip", "--oplog"],
-      { timeout: DUMP_TIMEOUT_MS, maxBuffer: MAX_BUFFER },
+      { timeout: config.DUMP_TIMEOUT_MS, maxBuffer: config.MAX_BUFFER },
     );
   } catch (err) {
     fail(`mongodump failed:\n${execDetail(err)}`);

@@ -10,14 +10,6 @@ export function sanitize(text: string): string {
   return redactionSecret ? text.split(redactionSecret).join("***MONGODB_URI***") : text;
 }
 
-const LOG_LEVELS = new Set(["trace", "debug", "info", "warn", "error", "fatal"]);
-
-function logLevel(): string {
-  // GitHub Actions renders a missing repository variable as an empty string.
-  const requested = (process.env.LOG_LEVEL ?? "").trim().toLowerCase();
-  return LOG_LEVELS.has(requested) ? requested : "info";
-}
-
 /** Every log line goes through the URI scrubber on its way out, so the
  *  connection string can never leak even if a call site forgets to sanitize. */
 const sanitizedDestination = {
@@ -29,7 +21,7 @@ const sanitizedDestination = {
 
 export const logger = pino(
   {
-    level: logLevel(),
+    level: "info", // main() applies LOG_LEVEL from the validated config
     base: undefined, // drop pid/hostname — noise in CI logs
     timestamp: pino.stdTimeFunctions.isoTime,
   },
