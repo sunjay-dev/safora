@@ -1,6 +1,7 @@
 import * as v from "valibot";
 
-const requiredString = (name: string) => v.pipe(v.string(), v.trim(), v.nonEmpty(`${name} must not be empty`));
+const requiredString = (name: string) =>
+  v.pipe(v.string(), v.trim(), v.nonEmpty(`${name} must not be empty`));
 
 const stringWithDefault = (fallback: string) =>
   v.pipe(
@@ -9,7 +10,13 @@ const stringWithDefault = (fallback: string) =>
     v.transform((raw) => (raw === "" ? fallback : raw)),
   );
 
-const intWithDefault = (name: string, fallback: number, unit: string, min = 1, max = Number.MAX_SAFE_INTEGER) =>
+const intWithDefault = (
+  name: string,
+  fallback: number,
+  unit: string,
+  min = 1,
+  max = Number.MAX_SAFE_INTEGER,
+) =>
   v.pipe(
     v.optional(v.string(), String(fallback)),
     v.trim(),
@@ -28,7 +35,10 @@ const backupPrefix = v.pipe(
 const logLevel = v.pipe(
   stringWithDefault("info"),
   v.transform((raw) => raw.toLowerCase()),
-  v.picklist(["trace", "debug", "info", "warn", "error", "fatal"], "LOG_LEVEL must be one of: trace, debug, info, warn, error, fatal"),
+  v.picklist(
+    ["trace", "debug", "info", "warn", "error", "fatal"],
+    "LOG_LEVEL must be one of: trace, debug, info, warn, error, fatal",
+  ),
 );
 
 export const EnvSchema = v.object({
@@ -44,7 +54,10 @@ export const EnvSchema = v.object({
   R2_ACCESS_KEY_ID: requiredString("R2_ACCESS_KEY_ID"),
   R2_SECRET_ACCESS_KEY: requiredString("R2_SECRET_ACCESS_KEY"),
   R2_BUCKET: requiredString("R2_BUCKET"),
-  AGE_RECIPIENT: v.pipe(requiredString("AGE_RECIPIENT"), v.startsWith("age1", 'AGE_RECIPIENT must be an age public key starting with "age1"')),
+  AGE_RECIPIENT: v.pipe(
+    requiredString("AGE_RECIPIENT"),
+    v.startsWith("age1", 'AGE_RECIPIENT must be an age public key starting with "age1"'),
+  ),
 
   LOG_LEVEL: logLevel,
   RETENTION_DAYS: intWithDefault("RETENTION_DAYS", 30, "days", 1, 3650),
@@ -66,7 +79,8 @@ export function loadConfig(): Config {
         const name = (issue.path ?? []).map((item) => String(item.key)).join(".") || "(root)";
         if (seen.has(name)) return null;
         seen.add(name);
-        const message = process.env[name] === undefined ? "missing environment variable" : issue.message;
+        const message =
+          process.env[name] === undefined ? "missing environment variable" : issue.message;
         return `  - ${name}: ${message}`;
       })
       .filter((line): line is string => line !== null)

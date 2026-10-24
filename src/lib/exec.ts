@@ -9,6 +9,8 @@ export function tail(text: string, maxChars: number): string {
 
 export function execDetail(err: unknown): string {
   const e = err as Error & { stdout?: string; stderr?: string };
-  const parts = [e?.stderr, e?.stdout, e?.message].map((part) => (part ? String(part) : "")).filter(Boolean);
+  const parts = [e?.stderr, e?.stdout, e?.message]
+    .map((part) => (part ? String(part) : ""))
+    .filter(Boolean);
   return tail(parts.join("\n"), 4000);
 }

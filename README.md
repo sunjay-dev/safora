@@ -44,6 +44,7 @@ mongodb-backups/
 ├── docs/restore-checklist.md      # do this once against a scratch cluster
 ├── .env.example                   # local-run template (gitignored as .env)
 ├── .gitignore
+├── .prettierrc / .prettierignore  # Prettier config (100-col); pnpm format to apply
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -51,13 +52,13 @@ mongodb-backups/
 
 ## One-time setup
 
-1. **Repository** — create the *private* repo `mongodb-backups` and push these files.
+1. **Repository** — create the _private_ repo `mongodb-backups` and push these files.
 2. **age keys** — install [age](https://github.com/FiloSottile/age), then `age-keygen -o key.txt`:
    - the `# public key: age1...` line → GitHub secret `AGE_RECIPIENT`
    - the `AGE-SECRET-KEY-1...` private line → store offline (password manager / offline media). **If you lose it, every backup is unrecoverable.** Never commit it.
-3. **R2** — create the bucket `mongodb-backups`; then R2 → Manage R2 API Tokens → Create API Token → permission *Object Read & Write*, scope *apply to specific bucket only* → `mongodb-backups`. Note the Access Key ID and Secret Access Key.
-4. **GitHub secrets** (Settings → Secrets and variables → Actions → *Secrets*): `MONGODB_URI`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `AGE_RECIPIENT`. Build the endpoint as `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` (Account ID is on the R2 overview page; EU-jurisdiction buckets use `https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com`).
-5. **GitHub variables** (same page → *Variables*): `R2_BUCKET` = `mongodb-backups`. Everything else is optional with sane defaults, set as repository variables of the same name: `RETENTION_DAYS` (30), `LOG_LEVEL` (info), `BACKUP_PREFIX` (backups/), `DUMP_TIMEOUT_MS` (1200000), `ENCRYPT_TIMEOUT_MS` (600000), `TOOL_CHECK_TIMEOUT_MS` (30000), `MAX_BUFFER` (10485760). See `.env.example` for what each does.
+3. **R2** — create the bucket `mongodb-backups`; then R2 → Manage R2 API Tokens → Create API Token → permission _Object Read & Write_, scope _apply to specific bucket only_ → `mongodb-backups`. Note the Access Key ID and Secret Access Key.
+4. **GitHub secrets** (Settings → Secrets and variables → Actions → _Secrets_): `MONGODB_URI`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `AGE_RECIPIENT`. Build the endpoint as `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` (Account ID is on the R2 overview page; EU-jurisdiction buckets use `https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com`).
+5. **GitHub variables** (same page → _Variables_): `R2_BUCKET` = `mongodb-backups`. Everything else is optional with sane defaults, set as repository variables of the same name: `RETENTION_DAYS` (30), `LOG_LEVEL` (info), `BACKUP_PREFIX` (backups/), `DUMP_TIMEOUT_MS` (1200000), `ENCRYPT_TIMEOUT_MS` (600000), `TOOL_CHECK_TIMEOUT_MS` (30000), `MAX_BUFFER` (10485760). See `.env.example` for what each does.
 6. **Atlas** — dedicated backup user with the built-in `backup` role. Network Access: GitHub-hosted runners use rotating IPs, so either allow `0.0.0.0/0` (acceptable here because the user is limited to the backup role and the SRV string is SCRAM-protected) or self-host a runner with a static IP you can allowlist. Take the SRV connection string for that user → secret `MONGODB_URI`.
 7. **First run** — Actions → **MongoDB Atlas Backup** → Run workflow.
 

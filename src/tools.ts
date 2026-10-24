@@ -2,7 +2,6 @@ import type { Config } from "./config/env.config.js";
 import { execDetail, execFileAsync } from "./lib/exec.js";
 import { fail } from "./logging.js";
 
-/** Verify a required external tool exists; returns its version line. */
 export async function assertToolInstalled(
   config: Config,
   command: string,
