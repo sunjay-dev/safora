@@ -1,0 +1,72 @@
+name: MongoDB Atlas Backup
+
+on:
+  schedule:
+    # 00:00 UTC daily = 05:00 Pakistan Standard Time.
+    # Midnight UTC is peak load for GitHub's schedulers, so runs may start a few
+    # minutes late; it still runs once per day.
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+# Never run two backups concurrently; queue instead of cancelling.
+concurrency:
+  group: mongodb-backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Pin MongoDB Database Tools. Bump after checking:
+  # https://www.mongodb.com/try/download/database-tools/releases/archive
+  MDBTOOLS_VERSION: "100.15.0"
+
+jobs:
+  backup:
+    name: Dump, encrypt, upload to R2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        # version is taken from the packageManager field in package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install age
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age
+
+      - name: Install MongoDB Database Tools
+        run: |
+          set -euo pipefail
+          curl -sfL -o /tmp/mongodb-database-tools.deb \
+            "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-${MDBTOOLS_VERSION}.deb"
+          sudo apt-get install -y /tmp/mongodb-database-tools.deb
+          mongodump --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run backup
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          RETENTION_DAYS: ${{ vars.RETENTION_DAYS }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+        run: node dist/main.js

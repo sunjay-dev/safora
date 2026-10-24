@@ -1,0 +1,14 @@
+# Dependencies and build output
+node_modules/
+dist/
+pnpm-debug.log
+
+# Local environment / secrets
+.env
+
+# Backup artifacts — never commit databases
+*.archive
+*.archive.gz
+*.age
+workdir/
+tmp/

@@ -1,0 +1,16 @@
+import { TOOL_CHECK_TIMEOUT_MS } from "./constants.js";
+import { execDetail, execFileAsync } from "./lib/exec.js";
+import { fail } from "./logging.js";
+
+/** Verify a required external tool exists; returns its version line. */
+export async function assertToolInstalled(command: string, args: string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(command, args, {
+      timeout: TOOL_CHECK_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024,
+    });
+    return (stdout || "").split("\n")[0]?.trim() ?? "";
+  } catch (err) {
+    fail(`Required tool "${command}" is not on PATH or failed to start: ${execDetail(err)}`);
+  }
+}
