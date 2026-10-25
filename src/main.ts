@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config/env.config.js";
-import { mib, objectTimestamp } from "./lib/format.js";
+import { archiveObjectKey, mib } from "./lib/format.js";
 import { logger, sanitize, setRedactionSecret } from "./logging.js";
 import { runDump } from "./steps/dump.js";
 import { encryptArchive } from "./steps/encrypt.js";
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
 
   const workDir = await mkdtemp(join(tmpdir(), "mongodb-backup-"));
   const client = buildS3Client(config);
-  const objectKey = `${config.BACKUP_PREFIX}mongodb-${objectTimestamp()}.archive.gz.age`;
+  const objectKey = archiveObjectKey(config.BACKUP_PREFIX, new Date());
 
   try {
     const dump = await runDump(config, workDir);

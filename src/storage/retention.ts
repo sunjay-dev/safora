@@ -1,5 +1,6 @@
 import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import type { Config } from "../config/env.config.js";
+import { selectKeysToDelete, type RetentionCandidate } from "./retention-policy.js";
 
 /** Delete objects under backups/ whose LastModified is older than RETENTION_DAYS. */
 export async function pruneExpiredBackups(
@@ -7,8 +8,8 @@ export async function pruneExpiredBackups(
   client: S3Client,
   currentKey: string,
 ): Promise<string[]> {
-  const cutoffMs = Date.now() - config.RETENTION_DAYS * 24 * 60 * 60 * 1000;
-  const expired: { Key: string }[] = [];
+  const cutoff = new Date(Date.now() - config.RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const candidates: RetentionCandidate[] = [];
   let continuationToken: string | undefined;
 
   do {
@@ -20,21 +21,25 @@ export async function pruneExpiredBackups(
       }),
     );
     for (const object of page.Contents ?? []) {
-      const lastModified = object.LastModified?.getTime();
-      if (!object.Key || object.Key === currentKey || lastModified === undefined) continue;
-      if (lastModified < cutoffMs) expired.push({ Key: object.Key });
+      if (!object.Key || !object.LastModified) continue;
+      candidates.push({ key: object.Key, modifiedAt: object.LastModified });
     }
     continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
   } while (continuationToken);
 
+  const toDelete = selectKeysToDelete(candidates, cutoff, currentKey);
+
   // S3 batch delete accepts up to 1000 objects per request.
-  for (let i = 0; i < expired.length; i += 1000) {
+  for (let i = 0; i < toDelete.length; i += 1000) {
     await client.send(
       new DeleteObjectsCommand({
         Bucket: config.R2_BUCKET,
-        Delete: { Objects: expired.slice(i, i + 1000), Quiet: true },
+        Delete: {
+          Objects: toDelete.slice(i, i + 1000).map((key) => ({ Key: key })),
+          Quiet: true,
+        },
       }),
     );
   }
-  return expired.map((object) => object.Key);
+  return toDelete;
 }
