@@ -71,7 +71,10 @@ mongodb-backups/
    - the `AGE-SECRET-KEY-1...` private line → store offline (password manager / offline media). **If you lose it, every backup is unrecoverable.** Never commit it.
 3. **R2** — create the bucket `mongodb-backups`; then R2 → Manage R2 API Tokens → Create API Token → permission _Object Read & Write_, scope _apply to specific bucket only_ → `mongodb-backups`. Note the Access Key ID and Secret Access Key.
 4. **GitHub secrets** (Settings → Secrets and variables → Actions → _Secrets_): `MONGODB_URI`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `AGE_RECIPIENT`. Build the endpoint as `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` (Account ID is on the R2 overview page; EU-jurisdiction buckets use `https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com`).
-5. **GitHub variables** (same page → _Variables_): `R2_BUCKET` = `mongodb-backups`. Everything else is optional with sane defaults, set as repository variables of the same name: `RETENTION_DAYS` (30), `LOG_LEVEL` (info), `BACKUP_PREFIX` (backups/), `DUMP_TIMEOUT_MS` (1200000), `ENCRYPT_TIMEOUT_MS` (600000), `TOOL_CHECK_TIMEOUT_MS` (30000), `MAX_BUFFER` (10485760). See `.env.example` for what each does.
+5. **GitHub variables** (same page → _Variables_): set `R2_BUCKET` to `mongodb-backups`. The workflow reads `DESTINATIONS` here; unset or blank
+   defaults to `r2`. Other variables are optional with sane defaults: `RETENTION_DAYS` (30), `LOG_LEVEL` (info), `BACKUP_PREFIX` (backups/),
+   `DUMP_TIMEOUT_MS` (1200000), `ENCRYPT_TIMEOUT_MS` (600000), `TOOL_CHECK_TIMEOUT_MS` (30000), and `MAX_BUFFER` (10485760). See `.env.example` for
+   what each does.
 6. **Atlas** — dedicated backup user with the built-in `backup` role. Network Access: GitHub-hosted runners use rotating IPs, so either allow `0.0.0.0/0` (acceptable here because the user is limited to the backup role and the SRV string is SCRAM-protected) or self-host a runner with a static IP you can allowlist. Take the SRV connection string for that user → secret `MONGODB_URI`.
 7. **First run** — Actions → **MongoDB Atlas Backup** → Run workflow.
 
@@ -84,16 +87,28 @@ mongodb-backups/
 
 ## Local run
 
-Requires Node 20.19+ or 22.12+, [pnpm](https://pnpm.io/installation) (or `corepack enable`, which reads the pinned version from `package.json`), plus `mongodump` and `age` on your PATH.
+Requires Node.js 22.12 or later and [pnpm](https://pnpm.io/installation) (or `corepack enable`, which reads the pinned version from `package.json`).
+The `mongodump` and `age` commands must also be available on your `PATH`.
 
-```bash
-cp .env.example .env   # fill in values
+On Windows, install the two command-line tools before running a backup:
+
+- **MongoDB Database Tools** (includes `mongodump` and `mongorestore`): download the Windows x86_64 ZIP from the
+  [MongoDB Database Tools Download Center](https://www.mongodb.com/try/download/database-tools). Extract it and add its `bin` folder to your `PATH`.
+  Open a new terminal and confirm the install with `mongodump --version`.
+- **age**: install from PowerShell or Command Prompt with `winget install --id FiloSottile.age`. Open a new terminal and confirm it with
+  `age --version`.
+
+Copy `.env.example` to `.env` and fill in the values for your run. For a run with only the local destination, set `DESTINATIONS=local` and choose
+`LOCAL_BACKUP_DIR`; R2 credentials are needed only when `DESTINATIONS` includes `r2`. The `backup:local` command loads `.env` when present, builds the
+pipeline, and runs it. This command is the same in PowerShell, Command Prompt, and bash:
+
+```text
 pnpm install
-set -a; source .env; set +a
-pnpm run backup
+pnpm run backup:local
 ```
 
-(`.env` is not auto-loaded — the `set -a` snippet exports it for the current shell.)
+`pnpm run backup` remains the CI-shaped command and does not load `.env`. Selecting `local` in GitHub Actions writes an archive that disappears when
+the workflow finishes, so that destination is generally meaningless in CI.
 
 Logs are structured JSON (pino), one object per line — greppable in CI and easy to ship elsewhere. Set `LOG_LEVEL` (default `info`) to adjust verbosity. For readable local output, pipe through pino-pretty:
 
@@ -125,3 +140,5 @@ A successful `age -d` proves the archive decrypts with your key. The full downlo
 - The 30-minute job timeout and 20-minute dump timeout assume a small/medium cluster; raise both for larger data sets.
 - Retention is enforced by this pipeline. An R2 lifecycle rule on `backups/` makes a decent second line of defense.
 - Dependencies are pinned by the committed `pnpm-lock.yaml`; CI installs with `--frozen-lockfile`, so every run builds against exactly what was verified locally. Update the lockfile with `pnpm install` after changing `package.json`, and commit it together.
+- The temporary MongoDB URI file is protected with `chmod 600` on POSIX systems. Windows does not enforce those Unix permission bits through this call,
+  so this protection is largely a no-op there; keep the local account and temporary folder private.

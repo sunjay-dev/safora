@@ -17,6 +17,9 @@ aws s3 ls s3://mongodb-backups/backups/ \
   --endpoint-url <R2_ENDPOINT>
 ```
 
+For a local destination, locate the archive in `LOCAL_BACKUP_DIR` by its object key. The local
+archive uses the same object key as the R2 archive.
+
 ## 2. Download, verify, decrypt
 
 ```bash
@@ -34,6 +37,14 @@ age -d -i key.txt -o dump.archive.gz backup.archive.gz.age
 ```
 
 `age -d` succeeding is itself proof the archive decrypts with your key.
+
+When restoring from `LOCAL_BACKUP_DIR`, skip the R2 download and use the local archive file as
+input to the integrity check and decryption. For example:
+
+```bash
+sha256sum "$LOCAL_BACKUP_DIR/<OBJECT_KEY>"
+age -d -i key.txt -o dump.archive.gz "$LOCAL_BACKUP_DIR/<OBJECT_KEY>"
+```
 
 ### rclone alternative
 

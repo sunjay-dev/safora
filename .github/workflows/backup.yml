@@ -52,6 +52,9 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Run tests
+        run: pnpm test
+
       - name: Run backup
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
@@ -60,6 +63,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
+          DESTINATIONS: ${{ vars.DESTINATIONS }}
           RETENTION_DAYS: ${{ vars.RETENTION_DAYS }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           BACKUP_PREFIX: ${{ vars.BACKUP_PREFIX }}
