@@ -1,11 +1,18 @@
-import type { Config } from "../config/env.config.js";
+import type { Config, DestinationId } from "../config/env.config.js";
 import type { Destination } from "./destination.js";
+import { createLocalDestination } from "./local.js";
 import { createR2Destination } from "./r2.js";
 
-/**
- * The destinations selected for this run, in delivery order. R2 only for now;
- * the explicit DESTINATIONS list arrives with the config ticket.
- */
+/** The destinations selected for this run, in delivery order. */
 export function buildDestinations(config: Config): Destination[] {
-  return [createR2Destination(config)];
+  return config.DESTINATIONS.map((id) => createDestination(id, config));
+}
+
+function createDestination(id: DestinationId, config: Config): Destination {
+  switch (id) {
+    case "r2":
+      return createR2Destination(config);
+    case "local":
+      return createLocalDestination(config);
+  }
 }

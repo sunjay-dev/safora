@@ -8,6 +8,11 @@ export function archiveObjectKey(prefix: string, date: Date): string {
   return `${prefix}mongodb-${objectTimestamp(date)}.archive.gz.age`;
 }
 
+/** A finished archive's file name — never a `.part` staging file or a foreign file. */
+export function isArchiveFileName(name: string): boolean {
+  return /^mongodb-\d{4}-\d{2}-\d{2}T\d{6}Z\.archive\.gz\.age$/.test(name);
+}
+
 export function mib(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }

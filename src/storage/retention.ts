@@ -1,6 +1,6 @@
 import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import type { Config } from "../config/env.config.js";
-import { selectKeysToDelete, type RetentionCandidate } from "./retention-policy.js";
+import { retentionCutoff, selectKeysToDelete, type RetentionCandidate } from "./retention-policy.js";
 
 /** Delete objects under backups/ whose LastModified is older than RETENTION_DAYS. */
 export async function pruneExpiredBackups(
@@ -8,7 +8,7 @@ export async function pruneExpiredBackups(
   client: S3Client,
   currentKey: string,
 ): Promise<string[]> {
-  const cutoff = new Date(Date.now() - config.RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const cutoff = retentionCutoff(config.RETENTION_DAYS);
   const candidates: RetentionCandidate[] = [];
   let continuationToken: string | undefined;
 

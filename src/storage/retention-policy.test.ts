@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { selectKeysToDelete, type RetentionCandidate } from "./retention-policy.js";
+import { retentionCutoff, selectKeysToDelete, type RetentionCandidate } from "./retention-policy.js";
 
 const cutoff = new Date("2026-10-01T00:00:00.000Z");
 const currentKey = "backups/mongodb-current.archive.gz.age";
+
+describe("retentionCutoff", () => {
+  it("subtracts the retention window from now", () => {
+    const now = Date.parse("2026-10-24T00:00:00.000Z");
+
+    expect(retentionCutoff(30, now).toISOString()).toBe("2026-09-24T00:00:00.000Z");
+  });
+});
 
 describe("selectKeysToDelete", () => {
   it("selects nothing when there are no items", () => {
