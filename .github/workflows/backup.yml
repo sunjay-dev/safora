@@ -14,6 +14,7 @@ permissions:
 
 env:
   MDBTOOLS_VERSION: "100.15.0"
+  PG_MAJOR: "17"
 
 jobs:
   backup:
@@ -53,6 +54,61 @@ jobs:
       - name: Run backup
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          DESTINATIONS: ${{ vars.DESTINATIONS }}
+          RETENTION_DAYS: ${{ vars.RETENTION_DAYS }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          BACKUP_PREFIX: ${{ vars.BACKUP_PREFIX }}
+          DUMP_TIMEOUT_MS: ${{ vars.DUMP_TIMEOUT_MS }}
+          TOOL_CHECK_TIMEOUT_MS: ${{ vars.TOOL_CHECK_TIMEOUT_MS }}
+          MAX_BUFFER: ${{ vars.MAX_BUFFER }}
+        run: node dist/main.js
+
+  postgres:
+    name: "PostgreSQL: Dump, encrypt, upload to R2"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install PostgreSQL Client Tools
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y "postgresql-client-${PG_MAJOR}"
+          pg_dump --version
+          pg_restore --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Run backup
+        env:
+          ENGINE: postgres
+          POSTGRESQL_URI: ${{ secrets.POSTGRESQL_URI }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MongodbConfig, PostgresConfig } from "./config/env.config.js";
+import type { ExecFileFn } from "./lib/exec.js";
 import { assertPreflightTools, assertToolInstalled } from "./tools.js";
 
 const baseConfig = {
@@ -41,14 +42,42 @@ describe("assertToolInstalled", () => {
 
 describe("assertPreflightTools", () => {
   it("checks only mongodump for mongodb engine", async () => {
-    const result = await assertPreflightTools(mongodbConfig);
+    const executed: string[] = [];
+    const fakeExec = (async (cmd: string) => {
+      executed.push(cmd);
+      return { stdout: `${cmd} version 1.0.0\n`, stderr: "" };
+    }) as unknown as ExecFileFn;
+
+    const result = await assertPreflightTools(mongodbConfig, fakeExec);
     expect(result).toHaveProperty("mongodump");
     expect(result.mongodump).toContain("mongodump");
     expect(result).not.toHaveProperty("pg_dump");
     expect(result).not.toHaveProperty("pg_restore");
+    expect(executed).toEqual(["mongodump"]);
   });
 
   it("checks pg_dump and pg_restore for postgres engine", async () => {
-    await expect(assertPreflightTools(postgresConfig)).rejects.toThrowError(/Required tool "pg_dump" is not on PATH or failed to start/);
+    const executed: string[] = [];
+    const fakeExec = (async (cmd: string) => {
+      executed.push(cmd);
+      return { stdout: `${cmd} (PostgreSQL) 17.0\n`, stderr: "" };
+    }) as unknown as ExecFileFn;
+
+    const result = await assertPreflightTools(postgresConfig, fakeExec);
+    expect(result).toHaveProperty("pg_dump");
+    expect(result).toHaveProperty("pg_restore");
+    expect(result).not.toHaveProperty("mongodump");
+    expect(executed).toEqual(["pg_dump", "pg_restore"]);
+  });
+
+  it("fails with a helpful error when a tool is missing", async () => {
+    const fakeExec = (async (cmd: string) => {
+      if (cmd === "pg_dump") {
+        throw new Error("ENOENT");
+      }
+      return { stdout: "", stderr: "" };
+    }) as unknown as ExecFileFn;
+
+    await expect(assertPreflightTools(postgresConfig, fakeExec)).rejects.toThrowError(/Required tool "pg_dump" is not on PATH or failed to start/);
   });
 });
