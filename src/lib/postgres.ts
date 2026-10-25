@@ -9,6 +9,8 @@ export interface SplitPostgresUriResult {
   password?: string;
 }
 
+export const ENUMERATE_DATABASES_QUERY = "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate";
+
 /**
  * Escapes characters for .pgpass entry format.
  * In .pgpass, `:` and `\` in fields must be escaped with a backslash.
@@ -23,6 +25,8 @@ function escapePgpassField(value: string): string {
  *
  * Honors the URI verbatim (including sslmode and query parameters).
  * Handles URL-encoded passwords, explicit ports, and password-less URIs.
+ * The PGPASSFILE entry uses the database wildcard `*` so that a single entry
+ * covers all enumerated databases on the server.
  */
 export function splitPostgresUri(uri: string): SplitPostgresUriResult {
   let url: URL;
@@ -44,12 +48,11 @@ export function splitPostgresUri(uri: string): SplitPostgresUriResult {
     const rawHost = url.hostname;
     const hostname = rawHost !== "" ? rawHost : "*";
     const port = url.port !== "" ? url.port : "5432";
-    const rawPath = url.pathname.replace(/^\//, "");
-    const database = rawPath !== "" ? decodeURIComponent(rawPath) : "*";
+    const database = "*";
     const rawUser = url.username;
     const username = rawUser !== "" ? decodeURIComponent(rawUser) : "*";
 
-    pgpassEntry = `${escapePgpassField(hostname)}:${escapePgpassField(port)}:${escapePgpassField(database)}:${escapePgpassField(username)}:${escapePgpassField(password)}`;
+    pgpassEntry = `${escapePgpassField(hostname)}:${escapePgpassField(port)}:${database}:${escapePgpassField(username)}:${escapePgpassField(password)}`;
   }
 
   // Strip password from the URI
@@ -63,6 +66,40 @@ export function splitPostgresUri(uri: string): SplitPostgresUriResult {
     strippedUri,
     password,
   };
+}
+
+/**
+ * Builds a connection URI targeting a specific database by replacing the pathname
+ * in the stripped base URI while preserving all other connection parameters verbatim.
+ */
+export function buildDatabaseUri(strippedUri: string, database: string): string {
+  const url = new URL(strippedUri);
+  url.pathname = `/${encodeURIComponent(database)}`;
+  return url.toString();
+}
+
+/**
+ * Builds connection arguments targeting a specific database with the password stripped.
+ */
+export function buildDatabaseConnectionArgs(strippedUri: string, database: string): string[] {
+  return ["--dbname", buildDatabaseUri(strippedUri, database)];
+}
+
+/**
+ * Builds arguments for `psql` to execute a single query cleanly without headers or alignment.
+ */
+export function buildPsqlArgs(connectionArgs: readonly string[], query: string): string[] {
+  return [...connectionArgs, "--no-align", "--tuples-only", "--no-psqlrc", "-v", "ON_ERROR_STOP=1", "-c", query];
+}
+
+/**
+ * Parses database names from `psql --no-align --tuples-only` stdout.
+ */
+export function parseDatabaseList(stdout: string): string[] {
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }
 
 /**

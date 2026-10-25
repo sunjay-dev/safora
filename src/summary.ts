@@ -2,8 +2,13 @@ import { appendFile } from "node:fs/promises";
 import { failedOutcomes, type DestinationOutcome } from "./destinations/deliver.js";
 
 /** One summary block per destination, with failures called out at the end. */
-export function renderSummary(outcomes: readonly DestinationOutcome[], retentionDays: number, objectKey: string): string[] {
-  const lines = ["### MongoDB backup summary", ""];
+export function renderSummary(
+  outcomes: readonly DestinationOutcome[],
+  retentionDays: number,
+  objectKey: string,
+  title = "### MongoDB backup summary",
+): string[] {
+  const lines = [title, ""];
 
   for (const outcome of outcomes) {
     lines.push(`#### ${outcome.id}`);

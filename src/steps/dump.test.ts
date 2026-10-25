@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PostgresConfig } from "../config/env.config.js";
 import type { ExecFileFn } from "../lib/exec.js";
-import { runPostgresDump, verifyPostgresArchive } from "./dump.js";
+import { enumeratePostgresDatabases, runPostgresDump, verifyPostgresArchive } from "./dump.js";
 
 const basePostgresConfig: PostgresConfig = {
   ENGINE: "postgres",
-  POSTGRESQL_URI: "postgresql://backup-user:secret-pass@db.internal:5432/app",
+  POSTGRESQL_URI: "postgresql://backup-user:secret-pass@db.internal:5432/postgres",
   AGE_RECIPIENT: "age1mock",
   LOG_LEVEL: "info",
   RETENTION_DAYS: 30,
@@ -53,10 +53,57 @@ describe("verifyPostgresArchive", () => {
   });
 });
 
+describe("enumeratePostgresDatabases", () => {
+  it("queries psql to enumerate databases and filters templates and non-connectable databases", async () => {
+    const executed: Array<{ cmd: string; args: readonly string[]; env?: NodeJS.ProcessEnv }> = [];
+    const fakeExec = (async (cmd: string, args: readonly string[], options?: { env?: NodeJS.ProcessEnv }) => {
+      executed.push({ cmd, args, env: options?.env });
+      return { stdout: "postgres\napp_db\nreporting\n", stderr: "" };
+    }) as unknown as ExecFileFn;
+
+    const databases = await enumeratePostgresDatabases(basePostgresConfig, "/tmp/fake.pgpass", fakeExec);
+
+    expect(databases).toEqual(["postgres", "app_db", "reporting"]);
+    expect(executed).toHaveLength(1);
+    expect(executed[0].cmd).toBe("psql");
+    expect(executed[0].env?.PGPASSFILE).toBe("/tmp/fake.pgpass");
+
+    // Verify SQL filter query excludes templates and non-connectable databases
+    const queryArgIndex = executed[0].args.indexOf("-c");
+    expect(queryArgIndex).toBeGreaterThanOrEqual(0);
+    const query = executed[0].args[queryArgIndex + 1];
+    expect(query).toContain("datallowconn");
+    expect(query).toContain("NOT datistemplate");
+
+    // Content-asserted: password must NOT appear anywhere in psql arguments
+    expect(executed[0].args.join(" ")).not.toContain("secret-pass");
+  });
+
+  it("fails loudly when zero candidate databases are found", async () => {
+    const fakeExec = (async () => ({
+      stdout: "   \n\n  ",
+      stderr: "",
+    })) as unknown as ExecFileFn;
+
+    await expect(enumeratePostgresDatabases(basePostgresConfig, undefined, fakeExec)).rejects.toThrowError(/no databases to back up/);
+  });
+
+  it("fails with error details when psql command fails", async () => {
+    const fakeExec = (async () => {
+      const error = Object.assign(new Error("psql connection error"), {
+        stderr: "psql: error: connection to server failed: Connection refused",
+      });
+      throw error;
+    }) as unknown as ExecFileFn;
+
+    await expect(enumeratePostgresDatabases(basePostgresConfig, undefined, fakeExec)).rejects.toThrowError(/psql database enumeration failed:/);
+  });
+});
+
 describe("runPostgresDump execution and validation flow", () => {
   it("fails when pg_dump produces a zero-byte empty archive", async () => {
     const workDir = await mkdtemp(join(tmpdir(), "pg-dump-test-"));
-    const archivePath = join(workDir, "postgres.dump");
+    const archivePath = join(workDir, "postgres-app.dump");
 
     // Simulate pg_dump creating an empty 0-byte file
     const fakeExec = (async (cmd: string) => {
@@ -67,7 +114,7 @@ describe("runPostgresDump execution and validation flow", () => {
     }) as unknown as ExecFileFn;
 
     try {
-      await expect(runPostgresDump(basePostgresConfig, workDir, fakeExec)).rejects.toThrowError(
+      await expect(runPostgresDump(basePostgresConfig, workDir, "app", fakeExec)).rejects.toThrowError(
         /pg_dump reported success but produced an empty archive/,
       );
     } finally {
@@ -77,7 +124,7 @@ describe("runPostgresDump execution and validation flow", () => {
 
   it("fails when pg_restore validation detects empty output", async () => {
     const workDir = await mkdtemp(join(tmpdir(), "pg-dump-test-"));
-    const archivePath = join(workDir, "postgres.dump");
+    const archivePath = join(workDir, "postgres-app.dump");
 
     // Simulate pg_dump creating a non-empty file, but pg_restore producing empty TOC
     const fakeExec = (async (cmd: string) => {
@@ -92,7 +139,7 @@ describe("runPostgresDump execution and validation flow", () => {
     }) as unknown as ExecFileFn;
 
     try {
-      await expect(runPostgresDump(basePostgresConfig, workDir, fakeExec)).rejects.toThrowError(
+      await expect(runPostgresDump(basePostgresConfig, workDir, "app", fakeExec)).rejects.toThrowError(
         /pg_restore --list reported success but produced empty output/,
       );
     } finally {
@@ -102,7 +149,7 @@ describe("runPostgresDump execution and validation flow", () => {
 
   it("succeeds when pg_dump writes non-empty archive and pg_restore --list validates it", async () => {
     const workDir = await mkdtemp(join(tmpdir(), "pg-dump-test-"));
-    const archivePath = join(workDir, "postgres.dump");
+    const archivePath = join(workDir, "postgres-app.dump");
     const sampleDumpBytes = Buffer.from("PGDMP\x01\x02valid custom dump payload");
 
     const executedCommands: Array<{ cmd: string; args: readonly string[]; env?: NodeJS.ProcessEnv }> = [];
@@ -119,7 +166,7 @@ describe("runPostgresDump execution and validation flow", () => {
     }) as unknown as ExecFileFn;
 
     try {
-      const result = await runPostgresDump(basePostgresConfig, workDir, fakeExec);
+      const result = await runPostgresDump(basePostgresConfig, workDir, "app", fakeExec);
 
       expect(result.archivePath).toBe(archivePath);
       expect(result.bytes).toBe(sampleDumpBytes.length);
@@ -130,6 +177,7 @@ describe("runPostgresDump execution and validation flow", () => {
       expect(dumpInvocation!.args).toContain("--format=custom");
       expect(dumpInvocation!.args).toContain(`--file=${archivePath}`);
       expect(dumpInvocation!.args).toContain("--dbname");
+      expect(dumpInvocation!.args).toContain("postgresql://backup-user@db.internal:5432/app");
       // Assert password was NOT in pg_dump args
       expect(dumpInvocation!.args.join(" ")).not.toContain("secret-pass");
       // Assert PGPASSFILE env var was set

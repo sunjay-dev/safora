@@ -14,7 +14,7 @@ not a backup.
 ## 1. Find the backup
 
 The run's step summary (GitHub → Actions → the run, under either the `backup` job for MongoDB or the `postgres` job for PostgreSQL) lists the object
-key and SHA-256. To list everything instead:
+key and SHA-256 for each database. To list everything instead:
 
 ```bash
 aws s3 ls s3://mongodb-backups/backups/ \
@@ -24,7 +24,7 @@ aws s3 ls s3://mongodb-backups/backups/ \
 Archives follow engine-embedded naming under the shared `backups/` prefix:
 
 - MongoDB: `backups/mongodb-<YYYY-MM-DDTHHMMSSZ>.archive.gz.age`
-- PostgreSQL: `backups/postgres-<YYYY-MM-DDTHHMMSSZ>.dump.age`
+- PostgreSQL: `backups/postgres-<database>-<YYYY-MM-DDTHHMMSSZ>.dump.age`
 
 For a local destination, locate the archive in `LOCAL_BACKUP_DIR` by its object key. The local archive uses the same object key as the R2 archive.
 
@@ -38,18 +38,18 @@ export AWS_SECRET_ACCESS_KEY=<R2 secret access key>
 aws s3 cp s3://mongodb-backups/backups/<MONGODB_OBJECT_KEY> ./backup.archive.gz.age \
   --endpoint-url <R2_ENDPOINT>
 
-# PostgreSQL
-aws s3 cp s3://mongodb-backups/backups/<POSTGRES_OBJECT_KEY> ./postgres.dump.age \
+# PostgreSQL (per-database archive, e.g. for database 'app_db')
+aws s3 cp s3://mongodb-backups/backups/<POSTGRES_OBJECT_KEY> ./postgres-app_db.dump.age \
   --endpoint-url <R2_ENDPOINT>
 
 # Integrity check — this hash is of the ENCRYPTED file, and matches both the
 # run's step summary and the object's x-amz-meta-sha-256 metadata.
 sha256sum backup.archive.gz.age
-sha256sum postgres.dump.age
+sha256sum postgres-app_db.dump.age
 
 # Decrypt with age (producing uncompressed custom-format dump for Postgres or gzipped archive for MongoDB)
 age -d -i key.txt -o dump.archive.gz backup.archive.gz.age
-age -d -i key.txt -o postgres.dump postgres.dump.age
+age -d -i key.txt -o postgres-app_db.dump postgres-app_db.dump.age
 ```
 
 `age -d` succeeding is itself proof the archive decrypts with your key.
@@ -61,7 +61,7 @@ example:
 sha256sum "$LOCAL_BACKUP_DIR/<OBJECT_KEY>"
 age -d -i key.txt -o dump.archive.gz "$LOCAL_BACKUP_DIR/<MONGODB_OBJECT_KEY>"
 # or for PostgreSQL:
-age -d -i key.txt -o postgres.dump "$LOCAL_BACKUP_DIR/<POSTGRES_OBJECT_KEY>"
+age -d -i key.txt -o postgres-app_db.dump "$LOCAL_BACKUP_DIR/<POSTGRES_OBJECT_KEY>"
 ```
 
 ### rclone alternative
@@ -102,8 +102,9 @@ Notes:
 
 ### PostgreSQL restore
 
-The PostgreSQL backup pipeline dumps databases using `pg_dump --format=custom` (`-Fc`). Per ADR-0003, cluster-wide global objects (roles, users, and
-permissions) are **not** exported in the backup archive, as doing so would require storing a superuser credential in GitHub Actions secrets.
+The PostgreSQL backup pipeline dumps every non-template, connectable database on the server into its own custom-format archive
+(`pg_dump --format=custom`, `-Fc`). Per ADR-0003, cluster-wide global objects (roles, users, and permissions) are **not** exported in the backup
+archive, as doing so would require storing a superuser credential in GitHub Actions secrets. Restore is performed per-database.
 
 #### Step 3a. Recreate roles and database manually
 
@@ -125,10 +126,10 @@ CREATE DATABASE app_db OWNER app_user;
 
 #### Step 3b. Validate archive contents without writing anything
 
-Use `pg_restore --list` to inspect the table of contents and verify that the archive is intact and readable:
+Use `pg_restore --list` to inspect the table of contents and verify that the database archive is intact and readable:
 
 ```bash
-pg_restore --list postgres.dump
+pg_restore --list postgres-app_db.dump
 ```
 
 #### Step 3c. Restore to database
@@ -138,7 +139,7 @@ into a database that already contains schema objects:
 
 ```bash
 pg_restore --dbname="postgresql://postgres:<password>@<scratch-host>:5432/app_db" \
-  --clean --if-exists postgres.dump
+  --clean --if-exists postgres-app_db.dump
 ```
 
 #### Parallel restore options
@@ -149,7 +150,7 @@ databases:
 
 ```bash
 pg_restore --dbname="postgresql://postgres:<password>@<scratch-host>:5432/app_db" \
-  --jobs=4 --clean --if-exists postgres.dump
+  --jobs=4 --clean --if-exists postgres-app_db.dump
 ```
 
 > **Note:** Parallel restore runs concurrent sessions against the target database. Ensure `max_connections` on the target database is sufficient to
@@ -162,48 +163,48 @@ The custom archive format allows restoring individual schemas, tables, or sectio
 - **Restore specific table(s)** (`-t` / `--table`):
 
   ```bash
-  pg_restore --dbname="postgresql://..." --table=orders --table=customers postgres.dump
+  pg_restore --dbname="postgresql://..." --table=orders --table=customers postgres-app_db.dump
   ```
 
 - **Restore a specific schema** (`-n` / `--schema`):
 
   ```bash
-  pg_restore --dbname="postgresql://..." --schema=public postgres.dump
+  pg_restore --dbname="postgresql://..." --schema=public postgres-app_db.dump
   ```
 
 - **Restore schema definitions only (no data)**:
 
   ```bash
-  pg_restore --dbname="postgresql://..." --schema-only postgres.dump
+  pg_restore --dbname="postgresql://..." --schema-only postgres-app_db.dump
   ```
 
 - **Restore table data only (no schema creation)**:
 
   ```bash
-  pg_restore --dbname="postgresql://..." --data-only postgres.dump
+  pg_restore --dbname="postgresql://..." --data-only postgres-app_db.dump
   ```
 
 - **Restore by section** (`--section=pre-data|data|post-data`):
 
   ```bash
   # Restore table definitions and types (pre-data)
-  pg_restore --dbname="postgresql://..." --section=pre-data postgres.dump
+  pg_restore --dbname="postgresql://..." --section=pre-data postgres-app_db.dump
 
   # Restore table contents (data)
-  pg_restore --dbname="postgresql://..." --section=data postgres.dump
+  pg_restore --dbname="postgresql://..." --section=data postgres-app_db.dump
 
   # Restore indexes and constraints (post-data)
-  pg_restore --dbname="postgresql://..." --section=post-data postgres.dump
+  pg_restore --dbname="postgresql://..." --section=post-data postgres-app_db.dump
   ```
 
 - **Selective restore using a table of contents list file** (`-L` / `--use-list`): Generate the list of items from the archive:
   ```bash
-  pg_restore --list postgres.dump > restore.list
+  pg_restore --list postgres-app_db.dump > restore.list
   ```
   Edit `restore.list` in a text editor to comment out items you do not wish to restore (lines beginning with `;` are ignored by `pg_restore`), or
   rearrange item order:
   ```bash
-  pg_restore --dbname="postgresql://..." --use-list=restore.list postgres.dump
+  pg_restore --dbname="postgresql://..." --use-list=restore.list postgres-app_db.dump
   ```
 
 ## 4. Sanity checks
