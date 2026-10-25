@@ -107,8 +107,8 @@ pnpm install
 pnpm run backup:local
 ```
 
-`pnpm run backup` remains the CI-shaped command and does not load `.env`. Selecting `local` in GitHub Actions writes to temporary job storage; that
-copy disappears when the job ends, so `local` is generally meaningless in CI.
+`pnpm run backup` remains the CI-shaped command and does not load `.env`. Selecting `local` in GitHub Actions writes an archive that disappears when
+the workflow finishes, so that destination is generally meaningless in CI.
 
 Logs are structured JSON (pino), one object per line — greppable in CI and easy to ship elsewhere. Set `LOG_LEVEL` (default `info`) to adjust verbosity. For readable local output, pipe through pino-pretty:
 
