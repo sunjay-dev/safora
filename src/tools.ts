@@ -2,11 +2,7 @@ import type { Config } from "./config/env.config.js";
 import { execDetail, execFileAsync } from "./lib/exec.js";
 import { fail } from "./logging.js";
 
-export async function assertToolInstalled(
-  config: Config,
-  command: string,
-  args: string[],
-): Promise<string> {
+export async function assertToolInstalled(config: Config, command: string, args: string[]): Promise<string> {
   try {
     const { stdout } = await execFileAsync(command, args, {
       timeout: config.TOOL_CHECK_TIMEOUT_MS,

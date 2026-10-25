@@ -1,12 +1,14 @@
 # Restore checklist
 
-Work through this end-to-end **once, against a scratch cluster, before you actually need a backup.** A backup that has never been restored is a hope, not a backup.
+Work through this end-to-end **once, against a scratch cluster, before you actually need a backup.** A backup that has never been restored is a hope,
+not a backup.
 
 ## What you need
 
 - `age` and the **private key** (`key.txt`, the `AGE-SECRET-KEY-1...` line). The public key in `AGE_RECIPIENT` cannot decrypt.
 - MongoDB Database Tools (`mongorestore`).
-- R2 credentials with Object Read (the same bucket-scoped token works), the R2 endpoint URL (same value as your `R2_ENDPOINT` secret, e.g. `https://<account>.r2.cloudflarestorage.com`), and the AWS CLI — or download the object from the Cloudflare dashboard, or use rclone (config below).
+- R2 credentials with Object Read (the same bucket-scoped token works), the R2 endpoint URL (same value as your `R2_ENDPOINT` secret, e.g.
+  `https://<account>.r2.cloudflarestorage.com`), and the AWS CLI — or download the object from the Cloudflare dashboard, or use rclone (config below).
 
 ## 1. Find the backup
 
@@ -17,8 +19,7 @@ aws s3 ls s3://mongodb-backups/backups/ \
   --endpoint-url <R2_ENDPOINT>
 ```
 
-For a local destination, locate the archive in `LOCAL_BACKUP_DIR` by its object key. The local
-archive uses the same object key as the R2 archive.
+For a local destination, locate the archive in `LOCAL_BACKUP_DIR` by its object key. The local archive uses the same object key as the R2 archive.
 
 ## 2. Download, verify, decrypt
 
@@ -38,8 +39,8 @@ age -d -i key.txt -o dump.archive.gz backup.archive.gz.age
 
 `age -d` succeeding is itself proof the archive decrypts with your key.
 
-When restoring from `LOCAL_BACKUP_DIR`, skip the R2 download and use the local archive file as
-input to the integrity check and decryption. For example:
+When restoring from `LOCAL_BACKUP_DIR`, skip the R2 download and use the local archive file as input to the integrity check and decryption. For
+example:
 
 ```bash
 sha256sum "$LOCAL_BACKUP_DIR/<OBJECT_KEY>"
@@ -76,7 +77,8 @@ mongorestore --uri "mongodb+srv://<scratch-cluster>" --archive=dump.archive.gz -
 
 Notes:
 
-- Dumps are taken with `--oplog`, so `--oplogReplay` restores to a consistent point in time rather than the ragged state of "whenever each collection happened to finish".
+- Dumps are taken with `--oplog`, so `--oplogReplay` restores to a consistent point in time rather than the ragged state of "whenever each collection
+  happened to finish".
 - Restoring to the production cluster is the same command with the production URI — only after the scratch restore checks out.
 
 ## 4. Sanity checks
@@ -88,4 +90,5 @@ Notes:
 ## 5. Key escrow
 
 - Losing `key.txt` makes **every existing backup permanently unreadable**. Keep an offline copy (password manager + physical/offline medium).
-- To rotate keys: generate a new pair, update the `AGE_RECIPIENT` secret, keep the old private key until all backups made with it have aged out of retention. Stored backups are not re-encrypted automatically.
+- To rotate keys: generate a new pair, update the `AGE_RECIPIENT` secret, keep the old private key until all backups made with it have aged out of
+  retention. Stored backups are not re-encrypted automatically.

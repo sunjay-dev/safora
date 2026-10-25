@@ -11,3 +11,5 @@ aws
 .react-email
 .opencode
 .vscode
+.agents
+pnpm-lock.yaml

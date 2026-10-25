@@ -4,10 +4,7 @@ import { execDetail, execFileAsync } from "../lib/exec.js";
 import { fail } from "../logging.js";
 
 /** Encrypt the archive with age for the configured (public) recipient key. */
-export async function encryptArchive(
-  config: Config,
-  archivePath: string,
-): Promise<{ encryptedPath: string; bytes: number }> {
+export async function encryptArchive(config: Config, archivePath: string): Promise<{ encryptedPath: string; bytes: number }> {
   const encryptedPath = `${archivePath}.age`;
   try {
     // The recipient is a PUBLIC key, so passing it as an argument leaks nothing.

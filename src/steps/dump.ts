@@ -5,10 +5,7 @@ import { execDetail, execFileAsync } from "../lib/exec.js";
 import { fail } from "../logging.js";
 
 /** Full-cluster dump to a single gzipped archive; URI supplied via a private config file. */
-export async function runDump(
-  config: Config,
-  workDir: string,
-): Promise<{ archivePath: string; bytes: number }> {
+export async function runDump(config: Config, workDir: string): Promise<{ archivePath: string; bytes: number }> {
   const dumpConfigPath = join(workDir, "mongodump.conf");
   await writeFile(dumpConfigPath, `${JSON.stringify({ uri: config.MONGODB_URI })}\n`, {
     mode: 0o600,
@@ -17,11 +14,10 @@ export async function runDump(
 
   const archivePath = join(workDir, "dump.archive.gz");
   try {
-    await execFileAsync(
-      "mongodump",
-      ["--config", dumpConfigPath, `--archive=${archivePath}`, "--gzip", "--oplog"],
-      { timeout: config.DUMP_TIMEOUT_MS, maxBuffer: config.MAX_BUFFER },
-    );
+    await execFileAsync("mongodump", ["--config", dumpConfigPath, `--archive=${archivePath}`, "--gzip", "--oplog"], {
+      timeout: config.DUMP_TIMEOUT_MS,
+      maxBuffer: config.MAX_BUFFER,
+    });
   } catch (err) {
     fail(`mongodump failed:\n${execDetail(err)}`);
   } finally {
