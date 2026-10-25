@@ -3,11 +3,7 @@ import type { Config } from "../config/env.config.js";
 import { retentionCutoff, selectKeysToDelete, type RetentionCandidate } from "./retention-policy.js";
 
 /** Delete objects under backups/ whose LastModified is older than RETENTION_DAYS. */
-export async function pruneExpiredBackups(
-  config: Config,
-  client: S3Client,
-  currentKey: string,
-): Promise<string[]> {
+export async function pruneExpiredBackups(config: Config, client: S3Client, currentKey: string): Promise<string[]> {
   const cutoff = retentionCutoff(config.RETENTION_DAYS);
   const candidates: RetentionCandidate[] = [];
   let continuationToken: string | undefined;
