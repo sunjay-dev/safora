@@ -42,7 +42,6 @@ export const BaseEnvSchema = v.object({
   RETENTION_DAYS: intWithDefault("RETENTION_DAYS", 30, "days", 1, 3650),
   BACKUP_PREFIX: backupPrefix,
   DUMP_TIMEOUT_MS: intWithDefault("DUMP_TIMEOUT_MS", 20 * 60 * 1000, "milliseconds"),
-  ENCRYPT_TIMEOUT_MS: intWithDefault("ENCRYPT_TIMEOUT_MS", 10 * 60 * 1000, "milliseconds"),
   TOOL_CHECK_TIMEOUT_MS: intWithDefault("TOOL_CHECK_TIMEOUT_MS", 30 * 1000, "milliseconds"),
   MAX_BUFFER: intWithDefault("MAX_BUFFER", 10 * 1024 * 1024, "bytes"),
 });
@@ -82,7 +81,6 @@ export interface BaseConfig {
   RETENTION_DAYS: number;
   BACKUP_PREFIX: string;
   DUMP_TIMEOUT_MS: number;
-  ENCRYPT_TIMEOUT_MS: number;
   TOOL_CHECK_TIMEOUT_MS: number;
   MAX_BUFFER: number;
   DESTINATIONS: DestinationId[];

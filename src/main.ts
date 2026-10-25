@@ -18,8 +18,7 @@ async function main(): Promise<void> {
 
   const destinations = buildDestinations(config);
   const mongodumpVersion = await assertToolInstalled(config, "mongodump", ["--version"]);
-  const ageVersion = await assertToolInstalled(config, "age", ["--version"]);
-  logger.info({ mongodump: mongodumpVersion, age: ageVersion }, "toolchain ready");
+  logger.info({ mongodump: mongodumpVersion }, "toolchain ready");
   logger.info(
     {
       destinations: destinations.map((destination) => destination.id),
