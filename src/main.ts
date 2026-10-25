@@ -2,75 +2,51 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config/env.config.js";
+import { deliverArchive, failedOutcomes } from "./destinations/deliver.js";
+import { buildDestinations } from "./destinations/index.js";
 import { archiveObjectKey, mib } from "./lib/format.js";
-import { logger, sanitize, setRedactionSecret } from "./logging.js";
+import { fail, logger, sanitize, setRedactionSecret } from "./logging.js";
 import { runDump } from "./steps/dump.js";
 import { encryptArchive } from "./steps/encrypt.js";
-import { writeSummary } from "./summary.js";
+import { renderSummary, writeSummary } from "./summary.js";
 import { assertToolInstalled } from "./tools.js";
-import { buildS3Client } from "./storage/client.js";
-import { pruneExpiredBackups } from "./storage/retention.js";
-import { uploadAndVerify } from "./storage/upload.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
   setRedactionSecret(config.MONGODB_URI);
   logger.level = config.LOG_LEVEL;
 
+  const destinations = buildDestinations(config);
   const mongodumpVersion = await assertToolInstalled(config, "mongodump", ["--version"]);
   const ageVersion = await assertToolInstalled(config, "age", ["--version"]);
   logger.info({ mongodump: mongodumpVersion, age: ageVersion }, "toolchain ready");
   logger.info(
     {
-      bucket: config.R2_BUCKET,
+      destinations: destinations.map((destination) => destination.id),
       prefix: config.BACKUP_PREFIX,
       retentionDays: config.RETENTION_DAYS,
     },
-    "backup target",
+    "backup targets",
   );
 
   const workDir = await mkdtemp(join(tmpdir(), "mongodb-backup-"));
-  const client = buildS3Client(config);
   const objectKey = archiveObjectKey(config.BACKUP_PREFIX, new Date());
 
   try {
     const dump = await runDump(config, workDir);
-    logger.info(
-      { bytes: dump.bytes, human: mib(dump.bytes) },
-      "mongodump complete (gzipped archive)",
-    );
+    logger.info({ bytes: dump.bytes, human: mib(dump.bytes) }, "mongodump complete (gzipped archive)");
 
     const encrypted = await encryptArchive(config, dump.archivePath);
-    logger.info(
-      { bytes: encrypted.bytes, human: mib(encrypted.bytes) },
-      "archive encrypted with age",
-    );
+    logger.info({ bytes: encrypted.bytes, human: mib(encrypted.bytes) }, "archive encrypted with age");
 
-    const uploaded = await uploadAndVerify(config, client, encrypted.encryptedPath, objectKey);
-    logger.info(
-      {
-        bucket: config.R2_BUCKET,
-        key: objectKey,
-        bytes: uploaded.bytes,
-        sha256: uploaded.sha256,
-      },
-      "upload verified",
-    );
+    const outcomes = await deliverArchive(destinations, encrypted.encryptedPath, objectKey);
+    await writeSummary(renderSummary(outcomes, config.RETENTION_DAYS, objectKey));
 
-    const deleted = await pruneExpiredBackups(config, client, objectKey);
-    logger.info(
-      { pruned: deleted.length, keys: deleted, retentionDays: config.RETENTION_DAYS },
-      "retention policy applied",
-    );
-
-    await writeSummary([
-      "### MongoDB backup summary",
-      "",
-      `- Object: \`s3://${config.R2_BUCKET}/${objectKey}\``,
-      `- Encrypted size: ${uploaded.bytes} bytes`,
-      `- SHA-256: \`${uploaded.sha256}\` (encrypted file, also in object metadata)`,
-      `- Retention: ${deleted.length} object(s) pruned (${config.RETENTION_DAYS}-day policy)`,
-    ]);
+    const failed = failedOutcomes(outcomes);
+    if (failed.length > 0) {
+      const details = failed.map((outcome) => `${outcome.id} (${outcome.failure.stage}): ${outcome.failure.message}`).join("; ");
+      fail(`One or more destinations failed: ${details}`);
+    }
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

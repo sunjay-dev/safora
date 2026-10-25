@@ -8,12 +8,13 @@ Daily, encrypted MongoDB Atlas backups pushed to Cloudflare R2 by a GitHub Actio
 
 ```
 GitHub Actions (cron 00:00 UTC = 05:00 PKT, or manual run)
-└── Node.js orchestrator — src/main.ts (env validated with Valibot in src/config.ts)
+└── Node.js orchestrator — src/main.ts (env validated with Valibot in src/config/env.config.ts)
     ├── mongodump (MongoDB Database Tools) → single gzipped archive, point-in-time via --oplog
     │     └── URI supplied via a chmod-600 temp config file — never a command-line argument
     ├── age encryption (recipient = AGE_RECIPIENT public key)
-    ├── AWS SDK v3 → multipart upload to R2 → HeadObject verification (size must match)
-    └── retention: delete backups/ objects older than RETENTION_DAYS
+    └── destinations, attempted in listed order (src/destinations/)
+        └── r2: AWS SDK v3 → multipart upload to R2 → HeadObject verification (size must match)
+              └── retention: delete backups/ objects older than RETENTION_DAYS
 ```
 
 Objects land at `s3://<R2_BUCKET>/backups/mongodb-<YYYY-MM-DDTHHMMSSZ>.archive.gz.age`, each carrying its SHA-256 as `x-amz-meta-sha-256` metadata.
@@ -27,6 +28,11 @@ mongodb-backups/
 │   ├── main.ts                    # pipeline orchestration + top-level error handling
 │   ├── config/
 │   │   └── env.config.ts          # Valibot schema: required secrets + tunables with defaults
+│   ├── destinations/
+│   │   ├── destination.ts         # Destination contract: identifier + delivery + prune
+│   │   ├── deliver.ts             # sequential fan-out, failure collection, per-destination outcomes
+│   │   ├── index.ts               # destination list for this run (R2 only today)
+│   │   └── r2.ts                  # R2 implementation: client + upload + retention
 │   ├── logging.ts                 # log + fail + URI redaction
 │   ├── summary.ts                 # GitHub Actions step summary writer
 │   ├── tools.ts                   # mongodump/age preflight checks
