@@ -13,12 +13,11 @@ import { assertToolInstalled } from "./tools.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  setRedactionSecrets([
-    { name: "MONGODB_URI", value: (process.env.MONGODB_URI ?? "").trim() },
-    { name: "POSTGRESQL_URI", value: (process.env.POSTGRESQL_URI ?? "").trim() },
-    ...(config.ENGINE === "mongodb" ? [{ name: "MONGODB_URI", value: config.MONGODB_URI }] : []),
-    ...(config.ENGINE === "postgres" ? [{ name: "POSTGRESQL_URI", value: config.POSTGRESQL_URI }] : []),
-  ]);
+  setRedactionSecrets(
+    config.ENGINE === "mongodb"
+      ? [{ name: "MONGODB_URI", value: config.MONGODB_URI }]
+      : [{ name: "POSTGRESQL_URI", value: config.POSTGRESQL_URI }],
+  );
   logger.level = config.LOG_LEVEL;
 
   const destinations = buildDestinations(config);
