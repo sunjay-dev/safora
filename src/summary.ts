@@ -38,6 +38,11 @@ export function renderSummary(outcomes: readonly DestinationOutcome[], retention
 }
 
 export async function writeSummary(lines: string[]): Promise<void> {
-  if (!process.env.GITHUB_STEP_SUMMARY) return;
-  await appendFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`, "utf8");
+  const text = `${lines.join("\n")}\n`;
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) {
+    await appendFile(summaryPath, text, "utf8");
+    return;
+  }
+  process.stdout.write(text);
 }

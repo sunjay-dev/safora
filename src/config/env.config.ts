@@ -1,7 +1,7 @@
 import * as v from "valibot";
 
 export const VALID_DESTINATIONS = ["r2", "local"] as const;
-export type Destination = (typeof VALID_DESTINATIONS)[number];
+export type DestinationId = (typeof VALID_DESTINATIONS)[number];
 
 const requiredString = (name: string) => v.pipe(v.string(), v.trim(), v.nonEmpty(`${name} must not be empty`));
 
@@ -85,7 +85,7 @@ export interface BaseConfig {
   ENCRYPT_TIMEOUT_MS: number;
   TOOL_CHECK_TIMEOUT_MS: number;
   MAX_BUFFER: number;
-  DESTINATIONS: Destination[];
+  DESTINATIONS: DestinationId[];
 }
 
 export interface Config extends BaseConfig {
@@ -96,7 +96,7 @@ export interface Config extends BaseConfig {
   LOCAL_BACKUP_DIR?: string;
 }
 
-export function parseDestinations(raw?: string): Destination[] {
+export function parseDestinations(raw?: string): DestinationId[] {
   if (raw === undefined || raw.trim() === "") {
     return ["r2"];
   }
@@ -111,17 +111,17 @@ export function parseDestinations(raw?: string): Destination[] {
   }
 
   const seen = new Set<string>();
-  const destinations: Destination[] = [];
+  const destinations: DestinationId[] = [];
 
   for (const segment of segments) {
-    if (!VALID_DESTINATIONS.includes(segment as Destination)) {
+    if (!VALID_DESTINATIONS.includes(segment as DestinationId)) {
       throw new Error(`Unknown destination "${segment}". Valid destinations are: ${VALID_DESTINATIONS.join(", ")}`);
     }
     if (seen.has(segment)) {
       throw new Error(`Duplicate destination "${segment}"`);
     }
     seen.add(segment);
-    destinations.push(segment as Destination);
+    destinations.push(segment as DestinationId);
   }
 
   return destinations;
@@ -138,7 +138,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     baseOutput = baseResult.output;
   }
 
-  let destinations: Destination[] = [];
+  let destinations: DestinationId[] = [];
   try {
     destinations = parseDestinations(env.DESTINATIONS);
   } catch (err) {

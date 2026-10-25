@@ -1,6 +1,6 @@
 # mongodb-backups
 
-Daily, encrypted MongoDB Atlas backups pushed to Cloudflare R2 by a GitHub Actions workflow. A Node.js + TypeScript orchestrator runs the whole pipeline: `mongodump` creates the archive, `age` encrypts it, the AWS SDK for JavaScript v3 uploads it to R2 (no AWS CLI subprocess), and expired backups are pruned automatically.
+Daily, encrypted MongoDB Atlas backups delivered to Cloudflare R2 and/or a local folder, run from GitHub Actions or a local machine. A Node.js + TypeScript orchestrator runs the whole pipeline: `mongodump` creates the archive, `age` encrypts it, and each selected destination stores and verifies it (R2 through the AWS SDK for JavaScript v3, no AWS CLI subprocess). Expired backups are pruned automatically per destination.
 
 **Keep this repository private.** The archive is encrypted client-side before it leaves the runner — R2 and anyone with access to the bucket only ever sees ciphertext.
 
@@ -13,11 +13,13 @@ GitHub Actions (cron 00:00 UTC = 05:00 PKT, or manual run)
     │     └── URI supplied via a chmod-600 temp config file — never a command-line argument
     ├── age encryption (recipient = AGE_RECIPIENT public key)
     └── destinations, attempted in listed order (src/destinations/)
-        └── r2: AWS SDK v3 → multipart upload to R2 → HeadObject verification (size must match)
-              └── retention: delete backups/ objects older than RETENTION_DAYS
+        ├── r2: AWS SDK v3 → multipart upload to R2 → HeadObject verification (size must match)
+        │     └── retention: delete backups/ objects older than RETENTION_DAYS
+        └── local: copy to <object-key>.part → SHA-256 verification → rename
+              └── retention: delete expired archives under LOCAL_BACKUP_DIR by mtime
 ```
 
-Objects land at `s3://<R2_BUCKET>/backups/mongodb-<YYYY-MM-DDTHHMMSSZ>.archive.gz.age`, each carrying its SHA-256 as `x-amz-meta-sha-256` metadata.
+Objects land at `s3://<R2_BUCKET>/backups/mongodb-<YYYY-MM-DDTHHMMSSZ>.archive.gz.age`, each carrying its SHA-256 as `x-amz-meta-sha-256` metadata. The local destination mirrors the same object key under `LOCAL_BACKUP_DIR`.
 
 ## Repository layout
 
@@ -31,10 +33,11 @@ mongodb-backups/
 │   ├── destinations/
 │   │   ├── destination.ts         # Destination contract: identifier + delivery + prune
 │   │   ├── deliver.ts             # sequential fan-out, failure collection, per-destination outcomes
-│   │   ├── index.ts               # destination list for this run (R2 only today)
+│   │   ├── index.ts               # destination list built from DESTINATIONS
+│   │   ├── local.ts               # local-folder implementation: atomic copy + mtime retention
 │   │   └── r2.ts                  # R2 implementation: client + upload + retention
 │   ├── logging.ts                 # log + fail + URI redaction
-│   ├── summary.ts                 # GitHub Actions step summary writer
+│   ├── summary.ts                 # per-destination summary: GitHub step summary or stdout
 │   ├── tools.ts                   # mongodump/age preflight checks
 │   ├── lib/
 │   │   ├── exec.ts                # execFile wrapper + child-output extraction
@@ -76,7 +79,7 @@ mongodb-backups/
 
 - **Manual**: Actions → MongoDB Atlas Backup → Run workflow.
 - **Scheduled**: daily at 00:00 UTC (05:00 Pakistan time). Midnight UTC is a busy time for GitHub's schedulers, so runs may start several minutes late — but it still fires once per day.
-- **Failure behavior**: any failed step fails the job loudly; nothing is uploaded unless encryption and dump both succeeded. Each successful run's step summary lists the object key, encrypted size, SHA-256, and pruned objects.
+- **Failure behavior**: any failed step fails the job loudly; no destination is written unless encryption and dump both succeeded. A run that selects several destinations attempts all of them and still exits non-zero if any destination fails. Each successful run's summary lists the object key, encrypted size, SHA-256, and pruned objects per destination; outside GitHub Actions it prints to stdout.
 - GitHub disables scheduled workflows after **60 days of repository inactivity** — any commit re-enables it. Watch for the notification email.
 
 ## Local run
