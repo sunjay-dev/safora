@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitize, setRedactionSecrets } from "./logging.js";
+import { fail, sanitize, setRedactionSecrets } from "./logging.js";
 
 describe("URI redaction", () => {
   it("redacts the MongoDB URI as before", () => {
@@ -35,5 +35,32 @@ describe("URI redaction", () => {
       { name: "LONG", value: "secret-sauce" },
     ]);
     expect(sanitize("value=secret-sauce")).toBe("value=***LONG***");
+  });
+
+  it("redacts both the full URI and standalone password without leaking either", () => {
+    const uri = "postgresql://backup-user:sup3r-s3cret@db.internal:5433/app?sslmode=require";
+    const password = "sup3r-s3cret";
+    setRedactionSecrets([
+      { name: "POSTGRESQL_URI", value: uri },
+      { name: "POSTGRESQL_PASSWORD", value: password },
+    ]);
+
+    // Unredacted URI in message
+    const msgWithUri = `connection failed to ${uri}`;
+    const sanitizedUri = sanitize(msgWithUri);
+    expect(sanitizedUri).not.toContain(uri);
+    expect(sanitizedUri).not.toContain(password);
+    expect(sanitizedUri).toBe("connection failed to ***POSTGRESQL_URI***");
+
+    // Standalone password in message
+    const msgWithPassword = `authentication failed for password: ${password}`;
+    const sanitizedPassword = sanitize(msgWithPassword);
+    expect(sanitizedPassword).not.toContain(password);
+    expect(sanitizedPassword).toBe("authentication failed for password: ***POSTGRESQL_PASSWORD***");
+
+    // In error thrown by fail()
+    expect(() => fail(`database error with ${password} at ${uri}`)).toThrowError(
+      "database error with ***POSTGRESQL_PASSWORD*** at ***POSTGRESQL_URI***",
+    );
   });
 });

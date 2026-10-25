@@ -5,27 +5,29 @@ import { loadConfig } from "./config/env.config.js";
 import { deliverArchive, failedOutcomes } from "./destinations/deliver.js";
 import { buildDestinations } from "./destinations/index.js";
 import { archiveObjectKey, mib } from "./lib/format.js";
+import { splitPostgresUri } from "./lib/postgres.js";
 import { fail, logger, sanitize, setRedactionSecrets } from "./logging.js";
 import { runDump } from "./steps/dump.js";
 import { encryptArchive } from "./steps/encrypt.js";
 import { renderSummary, writeSummary } from "./summary.js";
-import { assertToolInstalled } from "./tools.js";
+import { assertPreflightTools } from "./tools.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  setRedactionSecrets(
-    config.ENGINE === "mongodb"
-      ? [{ name: "MONGODB_URI", value: config.MONGODB_URI }]
-      : [{ name: "POSTGRESQL_URI", value: config.POSTGRESQL_URI }],
-  );
+  if (config.ENGINE === "mongodb") {
+    setRedactionSecrets([{ name: "MONGODB_URI", value: config.MONGODB_URI }]);
+  } else {
+    const { password } = splitPostgresUri(config.POSTGRESQL_URI);
+    setRedactionSecrets([
+      { name: "POSTGRESQL_URI", value: config.POSTGRESQL_URI },
+      ...(password ? [{ name: "POSTGRESQL_PASSWORD", value: password }] : []),
+    ]);
+  }
   logger.level = config.LOG_LEVEL;
 
   const destinations = buildDestinations(config);
-  if (config.ENGINE !== "mongodb") {
-    fail("ENGINE=postgres is not supported by this pipeline yet; only mongodb dumps are implemented.");
-  }
-  const mongodumpVersion = await assertToolInstalled(config, "mongodump", ["--version"]);
-  logger.info({ mongodump: mongodumpVersion }, "toolchain ready");
+  const tools = await assertPreflightTools(config);
+  logger.info(tools, "toolchain ready");
   logger.info(
     {
       destinations: destinations.map((destination) => destination.id),
@@ -35,12 +37,13 @@ async function main(): Promise<void> {
     "backup targets",
   );
 
-  const workDir = await mkdtemp(join(tmpdir(), "mongodb-backup-"));
+  const workDir = await mkdtemp(join(tmpdir(), `${config.ENGINE}-backup-`));
   const objectKey = archiveObjectKey(config.BACKUP_PREFIX, config.ENGINE, new Date());
 
   try {
     const dump = await runDump(config, workDir);
-    logger.info({ bytes: dump.bytes, human: mib(dump.bytes) }, "mongodump complete (gzipped archive)");
+    const dumpMsg = config.ENGINE === "mongodb" ? "mongodump complete (gzipped archive)" : "pg_dump complete (custom archive)";
+    logger.info({ bytes: dump.bytes, human: mib(dump.bytes) }, dumpMsg);
 
     const encrypted = await encryptArchive(config, dump.archivePath);
     logger.info({ bytes: encrypted.bytes, human: mib(encrypted.bytes) }, "archive encrypted with age");

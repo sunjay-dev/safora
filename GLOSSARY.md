@@ -22,8 +22,8 @@ Storage, backend, target
 **Venue**: Where a run executes — a GitHub Actions runner or a local machine. Independent of destinations: any venue can deliver to any combination of
 destinations. _Avoid_: Runner, environment, machine
 
-**Engine**: The database product a run backs up — mongodb or postgres. Each run executes exactly one engine; a scheduled workflow may run jobs for several
-engines in parallel. _Avoid_: Database (the data itself), driver, dialect
+**Engine**: The database product a run backs up — mongodb or postgres. Each run executes exactly one engine; a scheduled workflow may run jobs for
+several engines in parallel. _Avoid_: Database (the data itself), driver, dialect
 
 **Object key**: An archive's location within a destination. One archive has the same object key in every destination. _Avoid_: Path, filename, prefix
 
