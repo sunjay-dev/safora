@@ -133,9 +133,13 @@ describe("withPgpassFile lifecycle against real filesystem", () => {
       expect(pgpassPath).toBeDefined();
       expect(existsSync(pgpassPath!)).toBe(true);
 
-      // Verify file permissions are 0600 (owner read/write only)
-      const fileStat = await stat(pgpassPath!);
-      expect(fileStat.mode & 0o777).toBe(0o600);
+      // Verify file permissions are 0600 (owner read/write only).
+      // NTFS has no Unix permission bits — writeFile's mode is a no-op on
+      // Windows and stat always reports 0666, so assert only on POSIX.
+      if (process.platform !== "win32") {
+        const fileStat = await stat(pgpassPath!);
+        expect(fileStat.mode & 0o777).toBe(0o600);
+      }
 
       // Verify file content is exactly the entry followed by a newline
       const content = await readFile(pgpassPath!, "utf8");
