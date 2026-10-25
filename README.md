@@ -32,21 +32,25 @@ mongodb-backups/
 │   ├── tools.ts                   # mongodump/age preflight checks
 │   ├── lib/
 │   │   ├── exec.ts                # execFile wrapper + child-output extraction
-│   │   ├── format.ts              # object keys, sizes
+│   │   ├── format.ts              # object-key assembly, sizes
+│   │   ├── format.test.ts         # archive object-key layout tests
 │   │   └── hash.ts                # SHA-256 of files
 │   ├── steps/
 │   │   ├── dump.ts                # mongodump → gzipped archive
 │   │   └── encrypt.ts             # age encryption
 │   └── storage/
 │       ├── client.ts              # R2 S3Client factory
-│       ├── upload.ts              # multipart upload + verification
-│       └── retention.ts           # prune objects older than RETENTION_DAYS
+│       ├── retention-policy.ts    # shared retention selection (pure)
+│       ├── retention-policy.test.ts # cutoff, current-key, empty-input tests
+│       ├── retention.ts           # prune objects older than RETENTION_DAYS
+│       └── upload.ts              # multipart upload + verification
 ├── docs/restore-checklist.md      # do this once against a scratch cluster
 ├── .env.example                   # local-run template (gitignored as .env)
 ├── .gitignore
 ├── .prettierrc / .prettierignore  # Prettier config (100-col); pnpm format to apply
 ├── package.json
 ├── tsconfig.json
+├── tsconfig.test.json             # typechecks source + tests without emitting
 └── README.md
 ```
 
@@ -71,7 +75,7 @@ mongodb-backups/
 
 ## Local run
 
-Requires Node 20+, [pnpm](https://pnpm.io/installation) (or `corepack enable`, which reads the pinned version from `package.json`), plus `mongodump` and `age` on your PATH.
+Requires Node 20.19+ or 22.12+, [pnpm](https://pnpm.io/installation) (or `corepack enable`, which reads the pinned version from `package.json`), plus `mongodump` and `age` on your PATH.
 
 ```bash
 cp .env.example .env   # fill in values
