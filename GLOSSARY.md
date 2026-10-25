@@ -4,7 +4,8 @@ Encrypted MongoDB backups delivered to one or more destinations, run from GitHub
 
 ## Language
 
-**Run**: One execution of the backup pipeline, producing exactly one archive. _Avoid_: Execution, job
+**Run**: One execution of the backup pipeline, producing one verified archive per database (one for MongoDB, one per non-template database for
+PostgreSQL). _Avoid_: Execution, job
 
 **Dump**: The unencrypted database snapshot produced during a run; it exists only in the run's temporary workspace and is never delivered anywhere.
 _Avoid_: Archive (reserved for the encrypted artifact)

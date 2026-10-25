@@ -1,9 +1,9 @@
 # mongodb-backups
 
 Daily, encrypted MongoDB Atlas and PostgreSQL backups delivered to Cloudflare R2 and/or a local folder, run from GitHub Actions or a local machine. A
-Node.js + TypeScript orchestrator runs the pipeline: `mongodump` or `pg_dump` creates the archive dump, `age-encryption` encrypts it in-process, and
-each selected destination stores and verifies it (R2 through the AWS SDK for JavaScript v3, no AWS CLI subprocess). Expired backups are pruned
-automatically per destination.
+Node.js + TypeScript orchestrator runs the pipeline: `mongodump` creates a single cluster archive or `psql` enumerates non-template databases and
+`pg_dump` creates an archive per database, `age-encryption` encrypts each in-process, and each selected destination stores and verifies it (R2 through
+the AWS SDK for JavaScript v3, no AWS CLI subprocess). Expired backups are pruned automatically per destination.
 
 **Keep this repository private.** The archive is encrypted client-side before it leaves the runner — R2 and anyone with access to the bucket only ever
 sees ciphertext.
@@ -24,16 +24,18 @@ GitHub Actions (cron 00:00 UTC = 05:00 PKT, or manual dispatch)
 │                   └── retention: delete expired archives under LOCAL_BACKUP_DIR by mtime
 └── Job 2: postgres (PostgreSQL)
     └── Node.js orchestrator — src/main.ts (ENGINE=postgres)
-        ├── pg_dump (PostgreSQL Client Tools) → custom-format archive (-Fc) validated with pg_restore --list
-        │     └── URI split: connection args without password; password via chmod-600 temp PGPASSFILE
-        ├── age encryption (in-process via age-encryption; recipient = AGE_RECIPIENT public key)
-        └── destinations (r2, local), attempted in listed order (same downstream pipeline)
+        ├── psql (PostgreSQL Client Tools) → enumerates connectable non-template databases
+        └── for each database:
+            ├── pg_dump (PostgreSQL Client Tools) → custom-format archive (-Fc) validated with pg_restore --list
+            │     └── URI connection args without password; password via chmod-600 temp PGPASSFILE (database wildcard)
+            ├── age encryption (in-process via age-encryption; recipient = AGE_RECIPIENT public key)
+            └── destinations (r2, local), attempted in listed order (same downstream pipeline)
 ```
 
 Objects land at:
 
 - `s3://<R2_BUCKET>/backups/mongodb-<YYYY-MM-DDTHHMMSSZ>.archive.gz.age`
-- `s3://<R2_BUCKET>/backups/postgres-<YYYY-MM-DDTHHMMSSZ>.dump.age`
+- `s3://<R2_BUCKET>/backups/postgres-<database>-<YYYY-MM-DDTHHMMSSZ>.dump.age`
 
 Each carrying its SHA-256 as `x-amz-meta-sha-256` metadata. The local destination mirrors the same object key under `LOCAL_BACKUP_DIR`.
 
@@ -55,16 +57,16 @@ mongodb-backups/
 │   │   └── r2.ts                  # R2 implementation: client + upload + retention
 │   ├── logging.ts                 # log + fail + URI & password redaction
 │   ├── summary.ts                 # per-destination summary: GitHub step summary or stdout
-│   ├── tools.ts                   # preflight tool checks (mongodump for MongoDB; pg_dump and pg_restore for PostgreSQL)
+│   ├── tools.ts                   # preflight tool checks (mongodump for MongoDB; psql, pg_dump, and pg_restore for PostgreSQL)
 │   ├── lib/
 │   │   ├── exec.ts                # execFile wrapper + child-output extraction
 │   │   ├── format.ts              # object-key assembly, sizes
 │   │   ├── format.test.ts         # archive object-key layout tests
 │   │   ├── hash.ts                # SHA-256 of files
-│   │   ├── postgres.ts            # URI split, PGPASSFILE lifecycle, pg_dump/pg_restore args
+│   │   ├── postgres.ts            # URI split, PGPASSFILE lifecycle, psql enumeration args, pg_dump/pg_restore args
 │   │   └── postgres.test.ts       # URI-split matrix + security invariant tests
 │   ├── steps/
-│   │   ├── dump.ts                # dump step branching on ENGINE: mongodump or pg_dump + verify
+│   │   ├── dump.ts                # dump step branching on ENGINE: mongodump or psql enumeration + pg_dump per database + verify
 │   │   └── encrypt.ts             # in-process age encryption
 │   └── storage/
 │       ├── client.ts              # R2 S3Client factory
@@ -117,12 +119,13 @@ mongodb-backups/
      ```
      The predefined `pg_read_all_data` role (PostgreSQL 14+) grants read-only access across all tables, views, and schemas without superuser
      privileges.
-   - **Connection URI & Public-Endpoint TLS guidance**: construct your connection URI pointing to the database:
+   - **Connection URI & Public-Endpoint TLS guidance**: construct your connection URI pointing to the maintenance database (`postgres`):
      ```text
-     postgresql://backup:<strong-password>@<vps-host>:5432/<database>?sslmode=require
+     postgresql://backup:<strong-password>@<vps-host>:5432/postgres?sslmode=require
      ```
      The pipeline respects `POSTGRESQL_URI` verbatim — any supported `sslmode` query parameter is honored as passed and the string is never silently
-     rewritten.
+     rewritten. The path names the maintenance database used to enumerate all connectable, non-template databases; each enumerated database is backed
+     up into its own archive.
      > **Warning on libpq default `sslmode=prefer`:** PostgreSQL's libpq defaults to `sslmode=prefer` when `sslmode` is omitted from the URI. With
      > `sslmode=prefer`, libpq first attempts an encrypted connection, but **silently falls back to an unencrypted, plaintext connection** if the
      > server does not enforce TLS. When backing up an endpoint that is publicly reachable over the internet, you should explicitly set
@@ -139,25 +142,28 @@ mongodb-backups/
   other green, with independent failure notifications and step summaries. Midnight UTC is a busy time for GitHub's schedulers, so runs may start
   several minutes late — but it still fires once per day.
 - **Failure behavior**: any failed step fails the job loudly; no destination is written unless dump and encryption both succeeded. A run that selects
-  several destinations attempts all of them and still exits non-zero if any destination fails. Each successful job's summary lists the object key,
-  encrypted size, SHA-256, and pruned objects per destination; outside GitHub Actions it prints to stdout.
+  several destinations attempts all of them and still exits non-zero if any destination fails. In PostgreSQL, all enumerated databases are attempted,
+  failures are collected, and successful databases' archives are still delivered even if another database fails. Each successful job's summary lists
+  the object key, encrypted size, SHA-256, and pruned objects per destination; outside GitHub Actions it prints to stdout.
 - GitHub disables scheduled workflows after **60 days of repository inactivity** — any commit re-enables it. Watch for the notification email.
 
 ## Local run
 
 Requires Node.js 22.12 or later and [pnpm](https://pnpm.io/installation) (or `corepack enable`, which reads the pinned version from `package.json`).
-The CLI tools for your chosen engine (`mongodump` for MongoDB; `pg_dump` and `pg_restore` for PostgreSQL) must also be available on your `PATH`.
+The CLI tools for your chosen engine (`mongodump` for MongoDB; `psql`, `pg_dump`, and `pg_restore` for PostgreSQL) must also be available on your
+`PATH`.
 
 On Windows, install the command-line tools before running a backup:
 
 - **MongoDB Database Tools** (includes `mongodump` and `mongorestore`): download the Windows x86_64 ZIP from the
   [MongoDB Database Tools Download Center](https://www.mongodb.com/try/download/database-tools). Extract it and add its `bin` folder to your `PATH`.
   Open a new terminal and confirm the install with `mongodump --version`.
-- **PostgreSQL 17 Client Tools** (includes `pg_dump` and `pg_restore`): download the Windows installer for PostgreSQL 17 from the
+- **PostgreSQL 17 Client Tools** (includes `psql`, `pg_dump`, and `pg_restore`): download the Windows installer for PostgreSQL 17 from the
   [PostgreSQL Windows Downloads](https://www.postgresql.org/download/windows/) (or the command-line binaries zip from EnterpriseDB). During setup with
   the installer, you can uncheck the server components and install only "Command Line Tools". Add the installation's `bin` directory (typically
   `C:\Program Files\PostgreSQL\17\bin`) to your system `PATH`. Open a new terminal and confirm the install:
   ```text
+  psql --version
   pg_dump --version
   pg_restore --version
   ```
@@ -202,14 +208,14 @@ aws s3 cp s3://<R2_BUCKET>/backups/mongodb-<TIMESTAMP>.archive.gz.age backup.arc
 age -d -i key.txt -o dump.archive.gz backup.archive.gz.age
 ```
 
-For PostgreSQL:
+For PostgreSQL (per-database archive):
 
 ```bash
-aws s3 cp s3://<R2_BUCKET>/backups/postgres-<TIMESTAMP>.dump.age postgres.dump.age \
+aws s3 cp s3://<R2_BUCKET>/backups/postgres-<DATABASE>-<TIMESTAMP>.dump.age postgres-<DATABASE>.dump.age \
   --endpoint-url <R2_ENDPOINT>
 
-age -d -i key.txt -o postgres.dump postgres.dump.age
-pg_restore --list postgres.dump
+age -d -i key.txt -o postgres-<DATABASE>.dump postgres-<DATABASE>.dump.age
+pg_restore --list postgres-<DATABASE>.dump
 ```
 
 A successful `age -d` proves the archive decrypts with your key (and `pg_restore --list` verifies the decrypted PostgreSQL custom-format archive table
@@ -221,7 +227,7 @@ of contents). The full download → verify → restore procedure lives in [docs/
 - Credential isolation:
   - `MONGODB_URI` reaches `mongodump` through a temporary chmod-600 config file, deleted immediately after the dump.
   - `POSTGRESQL_URI` is split so that connection arguments carry only the stripped URI; the password is provided through a temporary chmod-600
-    `PGPASSFILE` deleted immediately after the dump.
+    `PGPASSFILE` with a database wildcard covering all enumerated databases, deleted immediately after the run.
   - Passwords never appear in process listings, command lines, or shell history.
 - Redaction layer: logs go through pino with a stream that scrubs `MONGODB_URI`, `POSTGRESQL_URI`, and extracted passwords from every line before it
   is written, and error messages are sanitized before they are thrown.
@@ -239,6 +245,6 @@ of contents). The full download → verify → restore procedure lives in [docs/
   verified locally. Update the lockfile with `pnpm install` after changing `package.json`, and commit it together.
 - Temporary credential files (`mongodump.conf` and `.pgpass`) are protected with `chmod 600` on POSIX systems. Windows does not enforce those Unix
   permission bits through this call, so this protection is largely a no-op there; keep the local account and temporary folder private.
-- The PostgreSQL dump produces a custom-format archive (`-Fc`) of database objects and data. Cluster-wide global objects (roles, users, tablespaces)
-  are not included (avoiding superuser credentials in CI; ADR-0003); roles must be recreated manually before restore as documented in
+- The PostgreSQL dump produces a custom-format archive (`-Fc`) per non-template database. Cluster-wide global objects (roles, users, tablespaces) are
+  not included (avoiding superuser credentials in CI; ADR-0003); roles must be recreated manually before restore as documented in
   [docs/restore-checklist.md](docs/restore-checklist.md).

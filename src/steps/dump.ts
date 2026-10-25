@@ -2,7 +2,16 @@ import { chmod, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config, MongodbConfig, PostgresConfig } from "../config/env.config.js";
 import { execDetail, execFileAsync, type ExecFileFn } from "../lib/exec.js";
-import { buildPgDumpArgs, buildPgRestoreArgs, splitPostgresUri, withPgpassFile } from "../lib/postgres.js";
+import {
+  ENUMERATE_DATABASES_QUERY,
+  buildDatabaseConnectionArgs,
+  buildPgDumpArgs,
+  buildPgRestoreArgs,
+  buildPsqlArgs,
+  parseDatabaseList,
+  splitPostgresUri,
+  withPgpassFile,
+} from "../lib/postgres.js";
 import { fail } from "../logging.js";
 
 /** Full-cluster MongoDB dump to a single gzipped archive; URI supplied via a private config file. */
@@ -60,22 +69,56 @@ export async function verifyPostgresArchive(
   return stdout;
 }
 
-/** PostgreSQL dump using custom format into the temp workspace, validated with `pg_restore --list`. */
+/**
+ * Enumerates all non-template, connectable databases on the PostgreSQL server via `psql`.
+ * Fails loudly if zero databases are returned.
+ */
+export async function enumeratePostgresDatabases(config: PostgresConfig, pgpassPath?: string, exec: ExecFileFn = execFileAsync): Promise<string[]> {
+  const { connectionArgs } = splitPostgresUri(config.POSTGRESQL_URI);
+  const args = buildPsqlArgs(connectionArgs, ENUMERATE_DATABASES_QUERY);
+
+  let stdout: string;
+  try {
+    const result = await exec("psql", args, {
+      timeout: config.DUMP_TIMEOUT_MS,
+      maxBuffer: config.MAX_BUFFER,
+      env: pgpassPath ? { ...process.env, PGPASSFILE: pgpassPath } : process.env,
+    });
+    stdout = result.stdout ?? "";
+  } catch (err) {
+    fail(`psql database enumeration failed:\n${execDetail(err)}`);
+  }
+
+  const databases = parseDatabaseList(stdout);
+  if (databases.length === 0) {
+    fail("no databases to back up");
+  }
+
+  return databases;
+}
+
+/** PostgreSQL dump for a specific database using custom format into the temp workspace, validated with `pg_restore --list`. */
 export async function runPostgresDump(
   config: PostgresConfig,
   workDir: string,
-  exec: ExecFileFn = execFileAsync,
+  database: string,
+  pgpassPathOrExec?: string | ExecFileFn,
+  maybeExec?: ExecFileFn,
 ): Promise<{ archivePath: string; bytes: number }> {
-  const { connectionArgs, pgpassEntry } = splitPostgresUri(config.POSTGRESQL_URI);
-  const archivePath = join(workDir, "postgres.dump");
+  const pgpassPath = typeof pgpassPathOrExec === "string" ? pgpassPathOrExec : undefined;
+  const exec = typeof pgpassPathOrExec === "function" ? pgpassPathOrExec : (maybeExec ?? execFileAsync);
+
+  const { strippedUri, pgpassEntry } = splitPostgresUri(config.POSTGRESQL_URI);
+  const connectionArgs = buildDatabaseConnectionArgs(strippedUri, database);
+  const archivePath = join(workDir, `postgres-${database}.dump`);
   const dumpArgs = buildPgDumpArgs(connectionArgs, archivePath);
 
-  return withPgpassFile(workDir, pgpassEntry, async (pgpassPath) => {
+  const doDump = async (activePgpassPath: string | undefined) => {
     try {
       await exec("pg_dump", dumpArgs, {
         timeout: config.DUMP_TIMEOUT_MS,
         maxBuffer: config.MAX_BUFFER,
-        env: pgpassPath ? { ...process.env, PGPASSFILE: pgpassPath } : process.env,
+        env: activePgpassPath ? { ...process.env, PGPASSFILE: activePgpassPath } : process.env,
       });
     } catch (err) {
       fail(`pg_dump failed:\n${execDetail(err)}`);
@@ -89,15 +132,20 @@ export async function runPostgresDump(
     await verifyPostgresArchive(archivePath, config.DUMP_TIMEOUT_MS, config.MAX_BUFFER, exec);
 
     return { archivePath, bytes };
-  });
+  };
+
+  if (pgpassPath !== undefined) {
+    return doDump(pgpassPath);
+  }
+  return withPgpassFile(workDir, pgpassEntry, doDump);
 }
 
-/** Dump step branching on the selected engine \u2014 mongodb or postgres. */
+/** Dump step branching on the selected engine — mongodb or postgres. */
 export async function runDump(config: Config, workDir: string, exec: ExecFileFn = execFileAsync): Promise<{ archivePath: string; bytes: number }> {
   switch (config.ENGINE) {
     case "mongodb":
       return runMongodbDump(config, workDir, exec);
     case "postgres":
-      return runPostgresDump(config, workDir, exec);
+      fail("PostgreSQL engine backs up multiple databases; use runPostgresBackup");
   }
 }

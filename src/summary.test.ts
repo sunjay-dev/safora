@@ -27,9 +27,22 @@ describe("renderSummary", () => {
   it("renders one block per destination and names failed destinations", () => {
     const summary = renderSummary([delivered, failed], 30, "backups/mongodb-2026-10-24T021715Z.archive.gz.age").join("\n");
 
+    expect(summary).toContain("### MongoDB backup summary");
     expect(summary).toContain("#### r2");
     expect(summary).toContain("#### local");
     expect(summary).toContain("**Failed destinations:** `local`");
+  });
+
+  it("renders a custom title when provided for postgres per-database summary", () => {
+    const summary = renderSummary(
+      [delivered],
+      30,
+      "backups/postgres-app_db-2026-10-24T021715Z.dump.age",
+      "### PostgreSQL backup summary (app_db)",
+    ).join("\n");
+
+    expect(summary).toContain("### PostgreSQL backup summary (app_db)");
+    expect(summary).toContain("#### r2");
   });
 });
 

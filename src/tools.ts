@@ -14,14 +14,15 @@ export async function assertToolInstalled(config: Config, command: string, args:
   }
 }
 
-/** Preflight toolchain check — checks mongodump for mongodb, and pg_dump + pg_restore for postgres. */
+/** Preflight toolchain check — checks mongodump for mongodb, and psql, pg_dump, and pg_restore for postgres. */
 export async function assertPreflightTools(config: Config, execFile: ExecFileFn = execFileAsync): Promise<Record<string, string>> {
   if (config.ENGINE === "mongodb") {
     const mongodump = await assertToolInstalled(config, "mongodump", ["--version"], execFile);
     return { mongodump };
   } else {
+    const psql = await assertToolInstalled(config, "psql", ["--version"], execFile);
     const pg_dump = await assertToolInstalled(config, "pg_dump", ["--version"], execFile);
     const pg_restore = await assertToolInstalled(config, "pg_restore", ["--version"], execFile);
-    return { pg_dump, pg_restore };
+    return { psql, pg_dump, pg_restore };
   }
 }
