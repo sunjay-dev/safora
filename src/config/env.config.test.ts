@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig, parseDestinations, VALID_DESTINATIONS } from "./env.config.js";
+import { loadConfig, parseDestinations, parseEngine, VALID_DESTINATIONS, VALID_ENGINES } from "./env.config.js";
 
 const validBaseEnv = {
   MONGODB_URI: "mongodb://localhost:27017/test",
@@ -23,6 +23,31 @@ const validLocalEnv = {
 describe("VALID_DESTINATIONS", () => {
   it("exposes the supported destinations: r2 and local", () => {
     expect(VALID_DESTINATIONS).toEqual(["r2", "local"]);
+  });
+});
+
+describe("VALID_ENGINES", () => {
+  it("exposes the supported engines: mongodb and postgres", () => {
+    expect(VALID_ENGINES).toEqual(["mongodb", "postgres"]);
+  });
+});
+
+describe("parseEngine", () => {
+  it("defaults to mongodb when unset, empty, or blank whitespace", () => {
+    expect(parseEngine(undefined)).toBe("mongodb");
+    expect(parseEngine("")).toBe("mongodb");
+    expect(parseEngine("   ")).toBe("mongodb");
+    expect(parseEngine("\t \n ")).toBe("mongodb");
+  });
+
+  it("trims and lowercases the engine name", () => {
+    expect(parseEngine(" MONGODB ")).toBe("mongodb");
+    expect(parseEngine(" Postgres ")).toBe("postgres");
+  });
+
+  it("rejects an unknown value with a hard error listing the valid values", () => {
+    expect(() => parseEngine("mysql")).toThrowError(/Unknown engine "mysql"\. Valid engines are: mongodb, postgres/);
+    expect(() => parseEngine("mongodb,postgres")).toThrowError(/Unknown engine "mongodb,postgres"\. Valid engines are: mongodb, postgres/);
   });
 });
 
@@ -59,6 +84,107 @@ describe("parseDestinations", () => {
     expect(() => parseDestinations("r2, r2")).toThrowError(/Duplicate destination "r2"/);
     expect(() => parseDestinations("local, LOCAL")).toThrowError(/Duplicate destination "local"/);
     expect(() => parseDestinations("r2, local, r2")).toThrowError(/Duplicate destination "r2"/);
+  });
+});
+
+const validPostgresEnv = {
+  ...validR2Env,
+  ENGINE: "postgres",
+  POSTGRESQL_URI: "postgresql://backup-user:backup-password@db.internal:5432/app?sslmode=require",
+};
+
+describe("loadConfig engine validation matrix", () => {
+  it("defaults unset or blank ENGINE to mongodb", () => {
+    expect(loadConfig(validR2Env).ENGINE).toBe("mongodb");
+    expect(loadConfig({ ...validR2Env, ENGINE: "" }).ENGINE).toBe("mongodb");
+    expect(loadConfig({ ...validR2Env, ENGINE: "   " }).ENGINE).toBe("mongodb");
+  });
+
+  it("trims and lowercases ENGINE", () => {
+    expect(loadConfig({ ...validR2Env, ENGINE: " MONGODB " }).ENGINE).toBe("mongodb");
+    expect(loadConfig({ ...validPostgresEnv, ENGINE: " Postgres " }).ENGINE).toBe("postgres");
+  });
+
+  it("rejects an unknown ENGINE with an error listing the valid engines", () => {
+    expect(() => loadConfig({ ...validR2Env, ENGINE: "mysql" })).toThrowError(
+      /ENGINE: Unknown engine "mysql"\. Valid engines are: mongodb, postgres/,
+    );
+    expect(() => loadConfig({ ...validR2Env, ENGINE: "mongodb,postgres" })).toThrowError(
+      /ENGINE: Unknown engine "mongodb,postgres"\. Valid engines are: mongodb, postgres/,
+    );
+  });
+
+  it("requires MONGODB_URI if and only if mongodb is selected", () => {
+    const missingUri = { ...validR2Env };
+    delete (missingUri as Record<string, string | undefined>).MONGODB_URI;
+    expect(() => loadConfig(missingUri)).toThrowError(/MONGODB_URI: missing environment variable/);
+
+    expect(() => loadConfig({ ...validR2Env, MONGODB_URI: "" })).toThrowError(/MONGODB_URI must not be empty/);
+
+    // Postgres selected: MONGODB_URI is not required and is ignored entirely.
+    expect(() => loadConfig({ ...validPostgresEnv, MONGODB_URI: undefined })).not.toThrow();
+    expect(loadConfig({ ...validPostgresEnv, MONGODB_URI: "not a mongodb uri" })).not.toHaveProperty("MONGODB_URI");
+  });
+
+  it("requires POSTGRESQL_URI if and only if postgres is selected", () => {
+    const missingUri = { ...validR2Env, ENGINE: "postgres" };
+    expect(() => loadConfig(missingUri)).toThrowError(/POSTGRESQL_URI: missing environment variable/);
+
+    expect(() => loadConfig({ ...missingUri, POSTGRESQL_URI: "" })).toThrowError(/POSTGRESQL_URI must not be empty/);
+
+    // MongoDB selected: POSTGRESQL_URI is not required and is ignored entirely.
+    expect(() => loadConfig(validR2Env)).not.toThrow();
+    expect(loadConfig({ ...validR2Env, POSTGRESQL_URI: "not a postgres uri" })).not.toHaveProperty("POSTGRESQL_URI");
+  });
+
+  it("accepts postgres:// and postgresql:// URIs and never rewrites them", () => {
+    const postgresUri = "postgres://backup-user:p%40ss%2Fword@db.internal/app";
+    const postgresqlUri = "postgresql://backup-user:backup-password@db.internal:5433/app?sslmode=verify-full";
+
+    expect(loadConfig({ ...validPostgresEnv, POSTGRESQL_URI: postgresUri })).toMatchObject({
+      ENGINE: "postgres",
+      POSTGRESQL_URI: postgresUri,
+    });
+    expect(loadConfig({ ...validPostgresEnv, POSTGRESQL_URI: postgresqlUri })).toMatchObject({
+      ENGINE: "postgres",
+      POSTGRESQL_URI: postgresqlUri,
+    });
+  });
+
+  it("rejects an invalid POSTGRESQL_URI with a clear error that never echoes the URI", () => {
+    const invalidUri = "postgresql://backup-user:sup3r-s3cret@[broken-host/app";
+
+    let message = "";
+    expect(() => {
+      try {
+        loadConfig({ ...validPostgresEnv, POSTGRESQL_URI: invalidUri });
+      } catch (err) {
+        message = err instanceof Error ? err.message : String(err);
+        throw err;
+      }
+    }).toThrowError(/POSTGRESQL_URI must be a valid PostgreSQL connection URI/);
+
+    expect(message).not.toContain(invalidUri);
+    expect(message).not.toContain("sup3r-s3cret");
+  });
+
+  it("rejects a POSTGRESQL_URI with a non-postgres scheme", () => {
+    expect(() => loadConfig({ ...validPostgresEnv, POSTGRESQL_URI: "mysql://backup-user:secret@db.internal/app" })).toThrowError(
+      /POSTGRESQL_URI must be a valid PostgreSQL connection URI/,
+    );
+  });
+
+  it("returns only the selected engine's connection variable", () => {
+    const mongodbConfig = loadConfig(validR2Env);
+    expect(mongodbConfig).toMatchObject({ ENGINE: "mongodb", MONGODB_URI: "mongodb://localhost:27017/test" });
+    expect(mongodbConfig).not.toHaveProperty("POSTGRESQL_URI");
+
+    const postgresConfig = loadConfig(validPostgresEnv);
+    expect(postgresConfig).toMatchObject({
+      ENGINE: "postgres",
+      POSTGRESQL_URI: "postgresql://backup-user:backup-password@db.internal:5432/app?sslmode=require",
+    });
+    expect(postgresConfig).not.toHaveProperty("MONGODB_URI");
   });
 });
 

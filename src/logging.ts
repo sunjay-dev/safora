@@ -1,13 +1,22 @@
 import pino from "pino";
 
-let redactionSecret: string | null = null;
+export interface RedactionSecret {
+  name: string;
+  value: string;
+}
 
-export function setRedactionSecret(value: string): void {
-  redactionSecret = value;
+let redactionSecrets: RedactionSecret[] = [];
+
+export function setRedactionSecrets(secrets: readonly RedactionSecret[]): void {
+  redactionSecrets = secrets.filter((secret) => secret.value !== "").sort((a, b) => b.value.length - a.value.length);
 }
 
 export function sanitize(text: string): string {
-  return redactionSecret ? text.split(redactionSecret).join("***MONGODB_URI***") : text;
+  let sanitized = text;
+  for (const { name, value } of redactionSecrets) {
+    sanitized = sanitized.split(value).join(`***${name}***`);
+  }
+  return sanitized;
 }
 
 /** Every log line goes through the URI scrubber on its way out, so the
