@@ -1,16 +1,27 @@
+import type { EngineId } from "../config/env.config.js";
+
 /** e.g. 2026-10-24T021715Z — lexicographically sortable, safe in an S3 key. */
 export function objectTimestamp(date = new Date()): string {
   return `${date.toISOString().slice(0, 19).replace(/:/g, "")}Z`;
 }
 
+const archiveFileNameFor = (engine: EngineId, timestamp: string): string => {
+  switch (engine) {
+    case "mongodb":
+      return `mongodb-${timestamp}.archive.gz.age`;
+    case "postgres":
+      return `postgres-${timestamp}.dump.age`;
+  }
+};
+
 /** The archive's object key within a destination: prefix + timestamped name. */
-export function archiveObjectKey(prefix: string, date: Date): string {
-  return `${prefix}mongodb-${objectTimestamp(date)}.archive.gz.age`;
+export function archiveObjectKey(prefix: string, engine: EngineId, date: Date): string {
+  return `${prefix}${archiveFileNameFor(engine, objectTimestamp(date))}`;
 }
 
 /** A finished archive's file name — never a `.part` staging file or a foreign file. */
 export function isArchiveFileName(name: string): boolean {
-  return /^mongodb-\d{4}-\d{2}-\d{2}T\d{6}Z\.archive\.gz\.age$/.test(name);
+  return /^mongodb-\d{4}-\d{2}-\d{2}T\d{6}Z\.archive\.gz\.age$/.test(name) || /^postgres-\d{4}-\d{2}-\d{2}T\d{6}Z\.dump\.age$/.test(name);
 }
 
 export function mib(bytes: number): string {

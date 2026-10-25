@@ -5,7 +5,7 @@ import { loadConfig } from "./config/env.config.js";
 import { deliverArchive, failedOutcomes } from "./destinations/deliver.js";
 import { buildDestinations } from "./destinations/index.js";
 import { archiveObjectKey, mib } from "./lib/format.js";
-import { fail, logger, sanitize, setRedactionSecret } from "./logging.js";
+import { fail, logger, sanitize, setRedactionSecrets } from "./logging.js";
 import { runDump } from "./steps/dump.js";
 import { encryptArchive } from "./steps/encrypt.js";
 import { renderSummary, writeSummary } from "./summary.js";
@@ -13,10 +13,18 @@ import { assertToolInstalled } from "./tools.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  setRedactionSecret(config.MONGODB_URI);
+  setRedactionSecrets([
+    { name: "MONGODB_URI", value: (process.env.MONGODB_URI ?? "").trim() },
+    { name: "POSTGRESQL_URI", value: (process.env.POSTGRESQL_URI ?? "").trim() },
+    ...(config.ENGINE === "mongodb" ? [{ name: "MONGODB_URI", value: config.MONGODB_URI }] : []),
+    ...(config.ENGINE === "postgres" ? [{ name: "POSTGRESQL_URI", value: config.POSTGRESQL_URI }] : []),
+  ]);
   logger.level = config.LOG_LEVEL;
 
   const destinations = buildDestinations(config);
+  if (config.ENGINE !== "mongodb") {
+    fail("ENGINE=postgres is not supported by this pipeline yet; only mongodb dumps are implemented.");
+  }
   const mongodumpVersion = await assertToolInstalled(config, "mongodump", ["--version"]);
   logger.info({ mongodump: mongodumpVersion }, "toolchain ready");
   logger.info(
@@ -29,7 +37,7 @@ async function main(): Promise<void> {
   );
 
   const workDir = await mkdtemp(join(tmpdir(), "mongodb-backup-"));
-  const objectKey = archiveObjectKey(config.BACKUP_PREFIX, new Date());
+  const objectKey = archiveObjectKey(config.BACKUP_PREFIX, config.ENGINE, new Date());
 
   try {
     const dump = await runDump(config, workDir);

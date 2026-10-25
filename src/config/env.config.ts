@@ -3,6 +3,9 @@ import * as v from "valibot";
 export const VALID_DESTINATIONS = ["r2", "local"] as const;
 export type DestinationId = (typeof VALID_DESTINATIONS)[number];
 
+export const VALID_ENGINES = ["mongodb", "postgres"] as const;
+export type EngineId = (typeof VALID_ENGINES)[number];
+
 const requiredString = (name: string) => v.pipe(v.string(), v.trim(), v.nonEmpty(`${name} must not be empty`));
 
 const stringWithDefault = (fallback: string) =>
@@ -34,8 +37,24 @@ const logLevel = v.pipe(
   v.picklist(["trace", "debug", "info", "warn", "error", "fatal"], "LOG_LEVEL must be one of: trace, debug, info, warn, error, fatal"),
 );
 
-export const BaseEnvSchema = v.object({
-  MONGODB_URI: requiredString("MONGODB_URI"),
+/** A PostgreSQL connection URI: postgres:// or postgresql://, validated without ever echoing the value. */
+const postgresqlUri = v.pipe(
+  requiredString("POSTGRESQL_URI"),
+  v.check((raw) => {
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
+        return false;
+      }
+      // Require either a host or a database name so bare "postgresql://" is rejected.
+      return url.hostname !== "" || (url.pathname !== "" && url.pathname !== "/");
+    } catch {
+      return false;
+    }
+  }, "POSTGRESQL_URI must be a valid PostgreSQL connection URI (postgres:// or postgresql://)"),
+);
+
+export const CommonEnvSchema = v.object({
   AGE_RECIPIENT: v.pipe(requiredString("AGE_RECIPIENT"), v.startsWith("age1", 'AGE_RECIPIENT must be an age public key starting with "age1"')),
 
   LOG_LEVEL: logLevel,
@@ -44,6 +63,14 @@ export const BaseEnvSchema = v.object({
   DUMP_TIMEOUT_MS: intWithDefault("DUMP_TIMEOUT_MS", 20 * 60 * 1000, "milliseconds"),
   TOOL_CHECK_TIMEOUT_MS: intWithDefault("TOOL_CHECK_TIMEOUT_MS", 30 * 1000, "milliseconds"),
   MAX_BUFFER: intWithDefault("MAX_BUFFER", 10 * 1024 * 1024, "bytes"),
+});
+
+export const MongodbEnvSchema = v.object({
+  MONGODB_URI: requiredString("MONGODB_URI"),
+});
+
+export const PostgresEnvSchema = v.object({
+  POSTGRESQL_URI: postgresqlUri,
 });
 
 export const R2EnvSchema = v.object({
@@ -64,18 +91,7 @@ export const LocalEnvSchema = v.object({
   LOCAL_BACKUP_DIR: requiredString("LOCAL_BACKUP_DIR"),
 });
 
-export const EnvSchema = v.object({
-  ...BaseEnvSchema.entries,
-  DESTINATIONS: v.optional(v.string()),
-  R2_ENDPOINT: v.optional(v.string()),
-  R2_ACCESS_KEY_ID: v.optional(v.string()),
-  R2_SECRET_ACCESS_KEY: v.optional(v.string()),
-  R2_BUCKET: v.optional(v.string()),
-  LOCAL_BACKUP_DIR: v.optional(v.string()),
-});
-
 export interface BaseConfig {
-  MONGODB_URI: string;
   AGE_RECIPIENT: string;
   LOG_LEVEL: "trace" | "debug" | "info" | "warn" | "error" | "fatal";
   RETENTION_DAYS: number;
@@ -84,14 +100,27 @@ export interface BaseConfig {
   TOOL_CHECK_TIMEOUT_MS: number;
   MAX_BUFFER: number;
   DESTINATIONS: DestinationId[];
-}
-
-export interface Config extends BaseConfig {
   R2_ENDPOINT?: string;
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
   R2_BUCKET?: string;
   LOCAL_BACKUP_DIR?: string;
+}
+
+export type MongodbConfig = BaseConfig & { ENGINE: "mongodb"; MONGODB_URI: string };
+export type PostgresConfig = BaseConfig & { ENGINE: "postgres"; POSTGRESQL_URI: string };
+export type Config = MongodbConfig | PostgresConfig;
+
+export function parseEngine(raw?: string): EngineId {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (value === "") {
+    return "mongodb";
+  }
+
+  if (!VALID_ENGINES.includes(value as EngineId)) {
+    throw new Error(`Unknown engine "${value}". Valid engines are: ${VALID_ENGINES.join(", ")}`);
+  }
+  return value as EngineId;
 }
 
 export function parseDestinations(raw?: string): DestinationId[] {
@@ -128,12 +157,41 @@ export function parseDestinations(raw?: string): DestinationId[] {
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const issues: Array<{ path?: Array<{ key: unknown }>; message: string }> = [];
 
-  let baseOutput: v.InferOutput<typeof BaseEnvSchema> | undefined;
-  const baseResult = v.safeParse(BaseEnvSchema, env);
-  if (!baseResult.success) {
-    issues.push(...baseResult.issues);
+  let commonOutput: v.InferOutput<typeof CommonEnvSchema> | undefined;
+  const commonResult = v.safeParse(CommonEnvSchema, env);
+  if (!commonResult.success) {
+    issues.push(...commonResult.issues);
   } else {
-    baseOutput = baseResult.output;
+    commonOutput = commonResult.output;
+  }
+
+  let mongodbOutput: v.InferOutput<typeof MongodbEnvSchema> | undefined;
+  let postgresOutput: v.InferOutput<typeof PostgresEnvSchema> | undefined;
+
+  let engine: EngineId | undefined;
+  try {
+    engine = parseEngine(env.ENGINE);
+  } catch (err) {
+    issues.push({
+      path: [{ key: "ENGINE" }],
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (engine === "mongodb") {
+    const result = v.safeParse(MongodbEnvSchema, env);
+    if (!result.success) {
+      issues.push(...result.issues);
+    } else {
+      mongodbOutput = result.output;
+    }
+  } else if (engine === "postgres") {
+    const result = v.safeParse(PostgresEnvSchema, env);
+    if (!result.success) {
+      issues.push(...result.issues);
+    } else {
+      postgresOutput = result.output;
+    }
   }
 
   let destinations: DestinationId[] = [];
@@ -181,10 +239,18 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error(`Invalid configuration:\n${errorLines}`);
   }
 
-  return {
-    ...baseOutput!,
+  const base = {
+    ...commonOutput!,
     DESTINATIONS: destinations,
     ...(r2Output ?? {}),
     ...(localOutput ?? {}),
   };
+
+  if (engine === "mongodb") {
+    return { ...base, ENGINE: "mongodb", ...mongodbOutput! };
+  }
+  if (engine === "postgres") {
+    return { ...base, ENGINE: "postgres", ...postgresOutput! };
+  }
+  throw new Error("Invalid configuration:\n  - ENGINE: missing environment variable");
 }
