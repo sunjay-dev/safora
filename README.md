@@ -1,8 +1,9 @@
 # mongodb-backups
 
 Daily, encrypted MongoDB Atlas backups delivered to Cloudflare R2 and/or a local folder, run from GitHub Actions or a local machine. A Node.js +
-TypeScript orchestrator runs the whole pipeline: `mongodump` creates the archive, `age` encrypts it, and each selected destination stores and verifies
-it (R2 through the AWS SDK for JavaScript v3, no AWS CLI subprocess). Expired backups are pruned automatically per destination.
+TypeScript orchestrator runs the whole pipeline: `mongodump` creates the archive, `age-encryption` encrypts it in-process, and each selected
+destination stores and verifies it (R2 through the AWS SDK for JavaScript v3, no AWS CLI subprocess). Expired backups are pruned automatically per
+destination.
 
 **Keep this repository private.** The archive is encrypted client-side before it leaves the runner — R2 and anyone with access to the bucket only ever
 sees ciphertext.
@@ -14,7 +15,7 @@ GitHub Actions (cron 00:00 UTC = 05:00 PKT, or manual run)
 └── Node.js orchestrator — src/main.ts (env validated with Valibot in src/config/env.config.ts)
     ├── mongodump (MongoDB Database Tools) → single gzipped archive, point-in-time via --oplog
     │     └── URI supplied via a chmod-600 temp config file — never a command-line argument
-    ├── age encryption (recipient = AGE_RECIPIENT public key)
+    ├── age encryption (in-process via age-encryption; recipient = AGE_RECIPIENT public key)
     └── destinations, attempted in listed order (src/destinations/)
         ├── r2: AWS SDK v3 → multipart upload to R2 → HeadObject verification (size must match)
         │     └── retention: delete backups/ objects older than RETENTION_DAYS
@@ -42,7 +43,7 @@ mongodb-backups/
 │   │   └── r2.ts                  # R2 implementation: client + upload + retention
 │   ├── logging.ts                 # log + fail + URI redaction
 │   ├── summary.ts                 # per-destination summary: GitHub step summary or stdout
-│   ├── tools.ts                   # mongodump/age preflight checks
+│   ├── tools.ts                   # mongodump preflight check
 │   ├── lib/
 │   │   ├── exec.ts                # execFile wrapper + child-output extraction
 │   │   ├── format.ts              # object-key assembly, sizes
@@ -50,7 +51,7 @@ mongodb-backups/
 │   │   └── hash.ts                # SHA-256 of files
 │   ├── steps/
 │   │   ├── dump.ts                # mongodump → gzipped archive
-│   │   └── encrypt.ts             # age encryption
+│   │   └── encrypt.ts             # in-process age encryption
 │   └── storage/
 │       ├── client.ts              # R2 S3Client factory
 │       ├── retention-policy.ts    # shared retention selection (pure)
@@ -81,8 +82,7 @@ mongodb-backups/
    page; EU-jurisdiction buckets use `https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com`).
 5. **GitHub variables** (same page → _Variables_): set `R2_BUCKET` to `mongodb-backups`. The workflow reads `DESTINATIONS` here; unset or blank
    defaults to `r2`. Other variables are optional with sane defaults: `RETENTION_DAYS` (30), `LOG_LEVEL` (info), `BACKUP_PREFIX` (backups/),
-   `DUMP_TIMEOUT_MS` (1200000), `ENCRYPT_TIMEOUT_MS` (600000), `TOOL_CHECK_TIMEOUT_MS` (30000), and `MAX_BUFFER` (10485760). See `.env.example` for
-   what each does.
+   `DUMP_TIMEOUT_MS` (1200000), `TOOL_CHECK_TIMEOUT_MS` (30000), and `MAX_BUFFER` (10485760). See `.env.example` for what each does.
 6. **Atlas** — dedicated backup user with the built-in `backup` role. Network Access: GitHub-hosted runners use rotating IPs, so either allow
    `0.0.0.0/0` (acceptable here because the user is limited to the backup role and the SRV string is SCRAM-protected) or self-host a runner with a
    static IP you can allowlist. Take the SRV connection string for that user → secret `MONGODB_URI`.
@@ -101,15 +101,13 @@ mongodb-backups/
 ## Local run
 
 Requires Node.js 22.12 or later and [pnpm](https://pnpm.io/installation) (or `corepack enable`, which reads the pinned version from `package.json`).
-The `mongodump` and `age` commands must also be available on your `PATH`.
+The `mongodump` command must also be available on your `PATH`.
 
-On Windows, install the two command-line tools before running a backup:
+On Windows, install the command-line tool before running a backup:
 
 - **MongoDB Database Tools** (includes `mongodump` and `mongorestore`): download the Windows x86_64 ZIP from the
   [MongoDB Database Tools Download Center](https://www.mongodb.com/try/download/database-tools). Extract it and add its `bin` folder to your `PATH`.
   Open a new terminal and confirm the install with `mongodump --version`.
-- **age**: install from PowerShell or Command Prompt with `winget install --id FiloSottile.age`. Open a new terminal and confirm it with
-  `age --version`.
 
 Copy `.env.example` to `.env` and fill in the values for your run. For a run with only the local destination, set `DESTINATIONS=local` and choose
 `LOCAL_BACKUP_DIR`; R2 credentials are needed only when `DESTINATIONS` includes `r2`. The `backup:local` command loads `.env` when present, builds the
@@ -144,7 +142,7 @@ A successful `age -d` proves the archive decrypts with your key. The full downlo
 
 ## Security model
 
-- Client-side encryption before upload (age, X25519) — a compromise of R2 or the API token exposes ciphertext only.
+- Client-side encryption before upload (in-process via `age-encryption`, X25519) — a compromise of R2 or the API token exposes ciphertext only.
 - `MONGODB_URI` reaches `mongodump` through a temporary chmod-600 config file, deleted immediately after the dump: it never appears in process
   listings, command lines, or shell history. Logs go through pino with a destination that scrubs the URI from every line before it is written, and
   error messages are sanitized before they are thrown.

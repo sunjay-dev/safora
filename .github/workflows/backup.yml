@@ -33,11 +33,6 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install age
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends age
-
       - name: Install MongoDB Database Tools
         run: |
           set -euo pipefail
@@ -68,7 +63,6 @@ jobs:
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           BACKUP_PREFIX: ${{ vars.BACKUP_PREFIX }}
           DUMP_TIMEOUT_MS: ${{ vars.DUMP_TIMEOUT_MS }}
-          ENCRYPT_TIMEOUT_MS: ${{ vars.ENCRYPT_TIMEOUT_MS }}
           TOOL_CHECK_TIMEOUT_MS: ${{ vars.TOOL_CHECK_TIMEOUT_MS }}
           MAX_BUFFER: ${{ vars.MAX_BUFFER }}
         run: node dist/main.js
