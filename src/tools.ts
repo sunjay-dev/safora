@@ -13,3 +13,15 @@ export async function assertToolInstalled(config: Config, command: string, args:
     fail(`Required tool "${command}" is not on PATH or failed to start: ${execDetail(err)}`);
   }
 }
+
+/** Preflight toolchain check \u2014 checks mongodump for mongodb, and pg_dump + pg_restore for postgres. */
+export async function assertPreflightTools(config: Config): Promise<Record<string, string>> {
+  if (config.ENGINE === "mongodb") {
+    const mongodump = await assertToolInstalled(config, "mongodump", ["--version"]);
+    return { mongodump };
+  } else {
+    const pg_dump = await assertToolInstalled(config, "pg_dump", ["--version"]);
+    const pg_restore = await assertToolInstalled(config, "pg_restore", ["--version"]);
+    return { pg_dump, pg_restore };
+  }
+}
