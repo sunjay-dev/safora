@@ -17,9 +17,46 @@ env:
   PG_MAJOR: "17"
 
 jobs:
+  check-mongodb:
+    name: "Check: MONGODB_URI secret present"
+    runs-on: ubuntu-24.04
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: Check secret
+        id: check
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          if [ -n "$MONGODB_URI" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "MONGODB_URI secret is not set — skipping MongoDB backup job."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  check-postgres:
+    name: "Check: POSTGRESQL_URI secret present"
+    runs-on: ubuntu-24.04
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: Check secret
+        id: check
+        env:
+          POSTGRESQL_URI: ${{ secrets.POSTGRESQL_URI }}
+        run: |
+          if [ -n "$POSTGRESQL_URI" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "POSTGRESQL_URI secret is not set — skipping PostgreSQL backup job."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
   backup:
     name: Dump, encrypt, upload to R2
-    if: ${{ secrets.MONGODB_URI != '' }}
+    needs: check-mongodb
+    if: needs.check-mongodb.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -71,7 +108,8 @@ jobs:
 
   postgres:
     name: "PostgreSQL: Dump, encrypt, upload to R2"
-    if: ${{ secrets.POSTGRESQL_URI != '' }}
+    needs: check-postgres
+    if: needs.check-postgres.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
