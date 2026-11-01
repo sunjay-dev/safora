@@ -189,4 +189,39 @@ describe("local destination retention", () => {
 
     await expect(destination.prune("backups/mongodb-2026-10-24T021715Z.archive.gz.age")).resolves.toEqual([]);
   });
+
+  it("delivers to date/time subfolders and cleans up empty subfolders when archives are pruned", async () => {
+    const workspace = await temporaryDirectory();
+    const backupDir = join(workspace, "backup-root");
+    const destination = createLocalDestination(localConfig(backupDir, { RETENTION_DAYS: "7" }));
+
+    const expiredFolder = "backups/2026-10-01T000000Z";
+    const currentFolder = "backups/2026-10-24T021715Z";
+    await mkdir(join(backupDir, expiredFolder), { recursive: true });
+    await mkdir(join(backupDir, currentFolder), { recursive: true });
+
+    const expiredKey1 = `${expiredFolder}/postgres-app_db.dump.age`;
+    const expiredKey2 = `${expiredFolder}/postgres-analytics.dump.age`;
+    const currentKey = `${currentFolder}/postgres-app_db.dump.age`;
+
+    await writeFile(join(backupDir, expiredKey1), "archive1");
+    await writeFile(join(backupDir, expiredKey2), "archive2");
+    await writeFile(join(backupDir, currentKey), "archive3");
+
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    await utimes(join(backupDir, expiredKey1), tenDaysAgo, tenDaysAgo);
+    await utimes(join(backupDir, expiredKey2), tenDaysAgo, tenDaysAgo);
+
+    const pruned = await destination.prune(currentKey);
+    expect(pruned.sort()).toEqual([expiredKey2, expiredKey1].sort());
+
+    // Both files in expiredFolder should be deleted, and the expiredFolder directory itself should be cleaned up
+    expect(await fileExists(join(backupDir, expiredKey1))).toBe(false);
+    expect(await fileExists(join(backupDir, expiredKey2))).toBe(false);
+    expect(await fileExists(join(backupDir, expiredFolder))).toBe(false);
+
+    // Current backup and its folder should remain untouched
+    expect(await fileExists(join(backupDir, currentKey))).toBe(true);
+    expect(await fileExists(join(backupDir, currentFolder))).toBe(true);
+  });
 });

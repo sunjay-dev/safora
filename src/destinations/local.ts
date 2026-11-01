@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Config } from "../config/env.config.js";
 import { isArchiveFileName } from "../lib/format.js";
@@ -58,8 +58,14 @@ async function pruneLocalArchives(root: string, prefix: string, retentionDays: n
   const currentKey = objectKeyFor(root, resolveObjectPath(root, currentObjectKey));
   const toDelete = selectKeysToDelete(candidates, cutoff, currentKey);
 
+  const prefixPath = resolveObjectPath(root, prefix);
   for (const key of toDelete) {
-    await rm(resolveObjectPath(root, key), { force: true });
+    const filePath = resolveObjectPath(root, key);
+    await rm(filePath, { force: true });
+    const parentDir = dirname(filePath);
+    if (parentDir !== prefixPath && parentDir.startsWith(prefixPath)) {
+      await rmdir(parentDir).catch(() => undefined);
+    }
   }
   return toDelete;
 }
