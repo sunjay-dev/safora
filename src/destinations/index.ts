@@ -10,7 +10,7 @@ export function buildDestinations(config: Config): Destination[] {
 
 function createDestination(id: DestinationId, config: Config): Destination {
   switch (id) {
-    case "r2":
+    case "s3":
       return createR2Destination(config);
     case "local":
       return createLocalDestination(config);
