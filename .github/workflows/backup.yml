@@ -133,6 +133,11 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install -y "postgresql-client-${PG_MAJOR}"
+          # ubuntu-24.04 runners ship with postgresql-client-16 pre-installed;
+          # the pg17 binaries land at /usr/lib/postgresql/17/bin/ but /usr/bin/pg_dump
+          # still resolves to the older version. Prepend the versioned bin dir to PATH.
+          echo "/usr/lib/postgresql/${PG_MAJOR}/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/${PG_MAJOR}/bin:$PATH"
           psql --version
           pg_dump --version
           pg_restore --version
