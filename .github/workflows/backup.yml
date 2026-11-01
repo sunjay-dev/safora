@@ -19,6 +19,7 @@ env:
 jobs:
   backup:
     name: Dump, encrypt, upload to R2
+    if: ${{ secrets.MONGODB_URI != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
