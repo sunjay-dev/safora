@@ -8,22 +8,22 @@ export function objectTimestamp(date = new Date()): string {
 const archiveFileNameFor = (engine: EngineId, database?: string): string => {
   switch (engine) {
     case "mongodb":
-      return database ? `mongodb-${database}.archive.gz.age` : `mongodb.archive.gz.age`;
+      return database ? `${database}.archive.gz.age` : `mongodb.archive.gz.age`;
     case "postgres":
       if (!database) {
         throw new Error("database is required for postgres archive filename");
       }
-      return `postgres-${database}.dump.age`;
+      return `${database}.dump.age`;
   }
 };
 
-/** The archive's object key within a destination: prefix + timestamp subfolder + clean file name. */
+/** The archive's object key within a destination: prefix + timestamp subfolder + engine subfolder + clean file name. */
 export function archiveObjectKey(prefix: string, engine: "mongodb", date?: Date, database?: string): string;
 export function archiveObjectKey(prefix: string, engine: "postgres", date: Date, database: string): string;
 export function archiveObjectKey(prefix: string, engine: EngineId, date?: Date, database?: string): string;
 export function archiveObjectKey(prefix: string, engine: EngineId, date: Date = new Date(), database?: string): string {
   const timestamp = objectTimestamp(date);
-  return `${prefix}${timestamp}/${archiveFileNameFor(engine, database)}`;
+  return `${prefix}${timestamp}/${engine}/${archiveFileNameFor(engine, database)}`;
 }
 
 /** A finished archive's file name — never a `.part` staging file or a foreign file. */
@@ -34,10 +34,10 @@ export function isArchiveFileName(name: string): boolean {
   if (name === "mongodb-latest.archive.gz.age") {
     return false;
   }
-  if (/^postgres-\d{4}-\d{2}-\d{2}T\d{6}Z\.dump\.age$/.test(name) || name === "postgres.dump.age") {
+  if (/^postgres-\d{4}-\d{2}-\d{2}T\d{6}Z\.dump\.age$/.test(name)) {
     return false;
   }
-  return /^mongodb(-.+)?(-\d{4}-\d{2}-\d{2}T\d{6}Z)?\.archive\.gz\.age$/.test(name) || /^postgres-.+\.dump\.age$/.test(name);
+  return name.endsWith(".archive.gz.age") || name.endsWith(".dump.age");
 }
 
 export function mib(bytes: number): string {

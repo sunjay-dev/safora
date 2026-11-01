@@ -62,9 +62,14 @@ async function pruneLocalArchives(root: string, prefix: string, retentionDays: n
   for (const key of toDelete) {
     const filePath = resolveObjectPath(root, key);
     await rm(filePath, { force: true });
-    const parentDir = dirname(filePath);
-    if (parentDir !== prefixPath && parentDir.startsWith(prefixPath)) {
-      await rmdir(parentDir).catch(() => undefined);
+    let dir = dirname(filePath);
+    while (dir !== prefixPath && dir.startsWith(prefixPath)) {
+      try {
+        await rmdir(dir);
+        dir = dirname(dir);
+      } catch {
+        break;
+      }
     }
   }
   return toDelete;
