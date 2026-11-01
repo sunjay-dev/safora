@@ -1,4 +1,4 @@
-import * as v from "valibot";
+import { z } from "zod";
 
 export const VALID_DESTINATIONS = ["r2", "local"] as const;
 export type DestinationId = (typeof VALID_DESTINATIONS)[number];
@@ -6,41 +6,50 @@ export type DestinationId = (typeof VALID_DESTINATIONS)[number];
 export const VALID_ENGINES = ["mongodb", "postgres"] as const;
 export type EngineId = (typeof VALID_ENGINES)[number];
 
-const requiredString = (name: string) => v.pipe(v.string(), v.trim(), v.nonEmpty(`${name} must not be empty`));
+export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error", "fatal"] as const;
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
+const requiredString = (name: string) => z.string().trim().min(1, `${name} must not be empty`);
 
 const stringWithDefault = (fallback: string) =>
-  v.pipe(
-    v.optional(v.string(), fallback),
-    v.trim(),
-    v.transform((raw) => (raw === "" ? fallback : raw)),
-  );
+  z
+    .string()
+    .default(fallback)
+    .transform((raw) => {
+      const trimmed = raw.trim();
+      return trimmed === "" ? fallback : trimmed;
+    });
 
 const intWithDefault = (name: string, fallback: number, unit: string, min = 1, max = Number.MAX_SAFE_INTEGER) =>
-  v.pipe(
-    v.optional(v.string(), String(fallback)),
-    v.trim(),
-    v.transform((raw) => (raw === "" ? String(fallback) : raw)),
-    v.transform(Number),
-    v.check((n) => Number.isInteger(n) && n > 0, `${name} must be a positive integer (${unit})`),
-    v.minValue(min, `${name} must be at least ${min}`),
-    v.maxValue(max, `${name} must be at most ${max}`),
-  );
+  z
+    .string()
+    .default(String(fallback))
+    .transform((raw) => {
+      const trimmed = raw.trim();
+      return trimmed === "" ? String(fallback) : trimmed;
+    })
+    .transform(Number)
+    .refine((n) => Number.isInteger(n) && n > 0, {
+      message: `${name} must be a positive integer (${unit})`,
+    })
+    .refine((n) => n >= min, {
+      message: `${name} must be at least ${min}`,
+    })
+    .refine((n) => n <= max, {
+      message: `${name} must be at most ${max}`,
+    });
 
-const backupPrefix = v.pipe(
-  stringWithDefault("backups/"),
-  v.transform((raw) => (raw.endsWith("/") ? raw : `${raw}/`)),
-);
+const backupPrefix = stringWithDefault("backups/").transform((raw) => (raw.endsWith("/") ? raw : `${raw}/`));
 
-const logLevel = v.pipe(
-  stringWithDefault("info"),
-  v.transform((raw) => raw.toLowerCase()),
-  v.picklist(["trace", "debug", "info", "warn", "error", "fatal"], "LOG_LEVEL must be one of: trace, debug, info, warn, error, fatal"),
-);
+const logLevel = stringWithDefault("info")
+  .transform((raw) => raw.toLowerCase())
+  .refine((raw): raw is LogLevel => LOG_LEVELS.includes(raw as LogLevel), {
+    message: "LOG_LEVEL must be one of: trace, debug, info, warn, error, fatal",
+  });
 
 /** A PostgreSQL connection URI: postgres:// or postgresql://, validated without ever echoing the value. */
-const postgresqlUri = v.pipe(
-  requiredString("POSTGRESQL_URI"),
-  v.check((raw) => {
+const postgresqlUri = requiredString("POSTGRESQL_URI").refine(
+  (raw) => {
     try {
       const url = new URL(raw);
       if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
@@ -51,11 +60,14 @@ const postgresqlUri = v.pipe(
     } catch {
       return false;
     }
-  }, "POSTGRESQL_URI must be a valid PostgreSQL connection URI (postgres:// or postgresql://)"),
+  },
+  {
+    message: "POSTGRESQL_URI must be a valid PostgreSQL connection URI (postgres:// or postgresql://)",
+  },
 );
 
-export const CommonEnvSchema = v.object({
-  AGE_RECIPIENT: v.pipe(requiredString("AGE_RECIPIENT"), v.startsWith("age1", 'AGE_RECIPIENT must be an age public key starting with "age1"')),
+export const CommonEnvSchema = z.object({
+  AGE_RECIPIENT: requiredString("AGE_RECIPIENT").startsWith("age1", 'AGE_RECIPIENT must be an age public key starting with "age1"'),
 
   LOG_LEVEL: logLevel,
   RETENTION_DAYS: intWithDefault("RETENTION_DAYS", 30, "days", 1, 3650),
@@ -65,11 +77,11 @@ export const CommonEnvSchema = v.object({
   MAX_BUFFER: intWithDefault("MAX_BUFFER", 10 * 1024 * 1024, "bytes"),
 });
 
-export const MongodbEnvSchema = v.object({
+export const MongodbEnvSchema = z.object({
   MONGODB_URI: requiredString("MONGODB_URI"),
 });
 
-export const PostgresEnvSchema = v.object({
+export const PostgresEnvSchema = z.object({
   POSTGRESQL_URI: postgresqlUri,
 });
 
@@ -101,21 +113,20 @@ function pickBlocklist(specific?: string, fallback?: string): string | undefined
   return undefined;
 }
 
-export const R2EnvSchema = v.object({
-  R2_ENDPOINT: v.pipe(
-    v.string(),
-    v.trim(),
-    v.nonEmpty("R2_ENDPOINT must not be empty"),
-    v.startsWith("https://", "R2_ENDPOINT must use https://"),
-    v.url("R2_ENDPOINT must be a valid URL"),
-    v.transform((raw) => raw.replace(/\/+$/, "")),
-  ),
+export const R2EnvSchema = z.object({
+  R2_ENDPOINT: z
+    .string()
+    .trim()
+    .min(1, "R2_ENDPOINT must not be empty")
+    .startsWith("https://", "R2_ENDPOINT must use https://")
+    .url("R2_ENDPOINT must be a valid URL")
+    .transform((raw) => raw.replace(/\/+$/, "")),
   R2_ACCESS_KEY_ID: requiredString("R2_ACCESS_KEY_ID"),
   R2_SECRET_ACCESS_KEY: requiredString("R2_SECRET_ACCESS_KEY"),
   R2_BUCKET: requiredString("R2_BUCKET"),
 });
 
-export const LocalEnvSchema = v.object({
+export const LocalEnvSchema = z.object({
   LOCAL_BACKUP_DIR: requiredString("LOCAL_BACKUP_DIR"),
 });
 
@@ -183,42 +194,42 @@ export function parseDestinations(raw?: string): DestinationId[] {
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
-  const issues: Array<{ path?: Array<{ key: unknown }>; message: string }> = [];
+  const issues: Array<{ path?: Array<unknown>; message: string }> = [];
 
-  let commonOutput: v.InferOutput<typeof CommonEnvSchema> | undefined;
-  const commonResult = v.safeParse(CommonEnvSchema, env);
+  let commonOutput: z.infer<typeof CommonEnvSchema> | undefined;
+  const commonResult = CommonEnvSchema.safeParse(env);
   if (!commonResult.success) {
-    issues.push(...commonResult.issues);
+    issues.push(...commonResult.error.issues);
   } else {
-    commonOutput = commonResult.output;
+    commonOutput = commonResult.data;
   }
 
-  let mongodbOutput: v.InferOutput<typeof MongodbEnvSchema> | undefined;
-  let postgresOutput: v.InferOutput<typeof PostgresEnvSchema> | undefined;
+  let mongodbOutput: z.infer<typeof MongodbEnvSchema> | undefined;
+  let postgresOutput: z.infer<typeof PostgresEnvSchema> | undefined;
 
   let engine: EngineId | undefined;
   try {
     engine = parseEngine(env.ENGINE);
   } catch (err) {
     issues.push({
-      path: [{ key: "ENGINE" }],
+      path: ["ENGINE"],
       message: err instanceof Error ? err.message : String(err),
     });
   }
 
   if (engine === "mongodb") {
-    const result = v.safeParse(MongodbEnvSchema, env);
+    const result = MongodbEnvSchema.safeParse(env);
     if (!result.success) {
-      issues.push(...result.issues);
+      issues.push(...result.error.issues);
     } else {
-      mongodbOutput = result.output;
+      mongodbOutput = result.data;
     }
   } else if (engine === "postgres") {
-    const result = v.safeParse(PostgresEnvSchema, env);
+    const result = PostgresEnvSchema.safeParse(env);
     if (!result.success) {
-      issues.push(...result.issues);
+      issues.push(...result.error.issues);
     } else {
-      postgresOutput = result.output;
+      postgresOutput = result.data;
     }
   }
 
@@ -227,28 +238,28 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     destinations = parseDestinations(env.DESTINATIONS);
   } catch (err) {
     issues.push({
-      path: [{ key: "DESTINATIONS" }],
+      path: ["DESTINATIONS"],
       message: err instanceof Error ? err.message : String(err),
     });
   }
 
-  let r2Output: v.InferOutput<typeof R2EnvSchema> | undefined;
+  let r2Output: z.infer<typeof R2EnvSchema> | undefined;
   if (destinations.includes("r2")) {
-    const r2Result = v.safeParse(R2EnvSchema, env);
+    const r2Result = R2EnvSchema.safeParse(env);
     if (!r2Result.success) {
-      issues.push(...r2Result.issues);
+      issues.push(...r2Result.error.issues);
     } else {
-      r2Output = r2Result.output;
+      r2Output = r2Result.data;
     }
   }
 
-  let localOutput: v.InferOutput<typeof LocalEnvSchema> | undefined;
+  let localOutput: z.infer<typeof LocalEnvSchema> | undefined;
   if (destinations.includes("local")) {
-    const localResult = v.safeParse(LocalEnvSchema, env);
+    const localResult = LocalEnvSchema.safeParse(env);
     if (!localResult.success) {
-      issues.push(...localResult.issues);
+      issues.push(...localResult.error.issues);
     } else {
-      localOutput = localResult.output;
+      localOutput = localResult.data;
     }
   }
 
@@ -256,7 +267,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     const seen = new Set<string>();
     const errorLines = issues
       .map((issue) => {
-        const name = (issue.path ?? []).map((item) => String(item.key)).join(".") || "(root)";
+        const name = (issue.path ?? []).map((item) => String(item)).join(".") || "(root)";
         if (seen.has(name)) return null;
         seen.add(name);
         const message = env[name] === undefined ? "missing environment variable" : issue.message;
