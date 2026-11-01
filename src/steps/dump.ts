@@ -54,8 +54,11 @@ export async function runMongodbDump(
   return { archivePath, bytes };
 }
 
+const MONGODB_SYSTEM_DATABASES = new Set(["admin", "config", "local"]);
+
 /**
  * Enumerates all non-system databases on the MongoDB cluster using MongoClient.
+ * Internal MongoDB system databases (admin, config, local) are excluded as they cannot/should not be dumped per-database on Atlas.
  * Fails loudly if zero databases are returned.
  */
 export async function enumerateMongodbDatabases(
@@ -69,7 +72,7 @@ export async function enumerateMongodbDatabases(
     const result = await adminDb.listDatabases();
     const databases = (result.databases ?? [])
       .map((db) => db.name)
-      .filter((name) => name !== "local")
+      .filter((name) => !MONGODB_SYSTEM_DATABASES.has(name))
       .sort();
     if (databases.length === 0) {
       fail("no databases to back up");

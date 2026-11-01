@@ -248,7 +248,7 @@ describe("runMongodbDump", () => {
 });
 
 describe("enumerateMongodbDatabases", () => {
-  it("lists databases excluding local system database", async () => {
+  it("lists databases excluding internal system databases (admin, config, local)", async () => {
     const mockClient = {
       connect: async () => {},
       db: () => ({
@@ -262,7 +262,7 @@ describe("enumerateMongodbDatabases", () => {
     };
 
     const databases = await enumerateMongodbDatabases(baseMongoConfig, () => mockClient as unknown as MongoClient);
-    expect(databases).toEqual(["admin", "app_prod", "config"]);
+    expect(databases).toEqual(["app_prod"]);
   });
 
   it("fails loudly when zero databases are found", async () => {
@@ -271,7 +271,7 @@ describe("enumerateMongodbDatabases", () => {
       db: () => ({
         admin: () => ({
           listDatabases: async () => ({
-            databases: [{ name: "local" }],
+            databases: [{ name: "admin" }, { name: "config" }, { name: "local" }],
           }),
         }),
       }),
