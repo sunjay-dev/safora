@@ -226,6 +226,7 @@ export async function main(): Promise<void> {
       destinations: destinations.map((destination) => destination.id),
       prefix: config.BACKUP_PREFIX,
       retentionDays: config.RETENTION_DAYS,
+      blocklist: config.ENGINE === "mongodb" ? config.MONGODB_DB_BLOCKLIST : config.PG_DB_BLOCKLIST,
     },
     "backup targets",
   );

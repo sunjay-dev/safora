@@ -247,6 +247,29 @@ describe("loadConfig engine validation matrix", () => {
       DB_BLOCKLIST: "common_junk_*",
     });
     expect((pgWithCommonBlocklist as PostgresConfig).PG_DB_BLOCKLIST).toEqual(["common_junk_*"]);
+
+    // Empty string or whitespace in engine-specific variable must fall back to DB_BLOCKLIST (e.g. GitHub Actions unset vars)
+    const pgWithEmptySpecific = loadConfig({
+      ...validPostgresEnv,
+      PG_DB_BLOCKLIST: "",
+      DB_BLOCKLIST: "prisma_migrate_shadow_db_*, *test*",
+    });
+    expect((pgWithEmptySpecific as PostgresConfig).PG_DB_BLOCKLIST).toEqual(["prisma_migrate_shadow_db_*", "*test*"]);
+
+    const mongoWithWhitespaceSpecific = loadConfig({
+      ...validR2Env,
+      MONGODB_DB_BLOCKLIST: "   ",
+      DB_BLOCKLIST: "common_junk_*",
+    });
+    expect((mongoWithWhitespaceSpecific as MongodbConfig).MONGODB_DB_BLOCKLIST).toEqual(["common_junk_*"]);
+
+    // Engine-specific variable takes precedence over DB_BLOCKLIST when non-empty
+    const pgWithBoth = loadConfig({
+      ...validPostgresEnv,
+      PG_DB_BLOCKLIST: "pg_specific_*",
+      DB_BLOCKLIST: "common_*",
+    });
+    expect((pgWithBoth as PostgresConfig).PG_DB_BLOCKLIST).toEqual(["pg_specific_*"]);
   });
 });
 

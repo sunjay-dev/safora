@@ -89,6 +89,18 @@ export function parseDbBlocklist(raw?: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+function pickBlocklist(specific?: string, fallback?: string): string | undefined {
+  const specificTrimmed = specific?.trim();
+  if (specificTrimmed && specificTrimmed.length > 0) {
+    return specificTrimmed;
+  }
+  const fallbackTrimmed = fallback?.trim();
+  if (fallbackTrimmed && fallbackTrimmed.length > 0) {
+    return fallbackTrimmed;
+  }
+  return undefined;
+}
+
 export const R2EnvSchema = v.object({
   R2_ENDPOINT: v.pipe(
     v.string(),
@@ -267,7 +279,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       ...base,
       ENGINE: "mongodb",
       ...mongodbOutput!,
-      MONGODB_DB_BLOCKLIST: parseDbBlocklist(env.MONGODB_DB_BLOCKLIST ?? env.DB_BLOCKLIST),
+      MONGODB_DB_BLOCKLIST: parseDbBlocklist(pickBlocklist(env.MONGODB_DB_BLOCKLIST, env.DB_BLOCKLIST)),
     };
   }
   if (engine === "postgres") {
@@ -275,7 +287,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       ...base,
       ENGINE: "postgres",
       ...postgresOutput!,
-      PG_DB_BLOCKLIST: parseDbBlocklist(env.PG_DB_BLOCKLIST ?? env.DB_BLOCKLIST),
+      PG_DB_BLOCKLIST: parseDbBlocklist(pickBlocklist(env.PG_DB_BLOCKLIST, env.DB_BLOCKLIST)),
     };
   }
   throw new Error("Invalid configuration:\n  - ENGINE: missing environment variable");
