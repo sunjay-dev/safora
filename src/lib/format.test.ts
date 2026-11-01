@@ -2,18 +2,18 @@ import { describe, expect, it } from "vitest";
 import { archiveObjectKey, isArchiveFileName } from "./format.js";
 
 describe("archiveObjectKey", () => {
-  it("places the mongodb archive in a date/time and engine subfolder under the backup prefix", () => {
+  it("places the mongodb archive in an engine and date-time subfolder under the backup prefix", () => {
     const date = new Date("2026-10-24T02:17:15Z");
 
-    expect(archiveObjectKey("backups/", "mongodb", date)).toBe("backups/2026-10-24T021715Z/mongodb/mongodb.archive.gz.age");
-    expect(archiveObjectKey("backups/", "mongodb", date, "app_db")).toBe("backups/2026-10-24T021715Z/mongodb/app_db.archive.gz.age");
+    expect(archiveObjectKey("backups/", "mongodb", date)).toBe("backups/mongodb/2026-10-24_02-17-15/mongodb.archive.gz.age");
+    expect(archiveObjectKey("backups/", "mongodb", date, "app_db")).toBe("backups/mongodb/2026-10-24_02-17-15/app_db.archive.gz.age");
   });
 
-  it("places the postgres dump in a date/time and engine subfolder under the backup prefix with per-database naming", () => {
+  it("places the postgres dump in an engine and date-time subfolder under the backup prefix with per-database naming", () => {
     const date = new Date("2026-10-24T02:17:15Z");
 
-    expect(archiveObjectKey("backups/", "postgres", date, "app_db")).toBe("backups/2026-10-24T021715Z/postgres/app_db.dump.age");
-    expect(archiveObjectKey("backups/", "postgres", date, "postgres")).toBe("backups/2026-10-24T021715Z/postgres/postgres.dump.age");
+    expect(archiveObjectKey("backups/", "postgres", date, "app_db")).toBe("backups/postgres/2026-10-24_02-17-15/app_db.dump.age");
+    expect(archiveObjectKey("backups/", "postgres", date, "postgres")).toBe("backups/postgres/2026-10-24_02-17-15/postgres.dump.age");
   });
 
   it("throws when database is omitted for postgres archive key", () => {

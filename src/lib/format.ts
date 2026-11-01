@@ -1,8 +1,9 @@
 import type { EngineId } from "../config/env.config.js";
 
-/** e.g. 2026-10-24T021715Z — lexicographically sortable, safe in an S3 key. */
+/** e.g. 2026-10-24_02-17-15 — human readable, lexicographically sortable, safe in an S3 key. */
 export function objectTimestamp(date = new Date()): string {
-  return `${date.toISOString().slice(0, 19).replace(/:/g, "")}Z`;
+  const iso = date.toISOString().slice(0, 19); // "2026-10-24T02:17:15"
+  return iso.replace("T", "_").replace(/:/g, "-");
 }
 
 const archiveFileNameFor = (engine: EngineId, database?: string): string => {
@@ -17,13 +18,13 @@ const archiveFileNameFor = (engine: EngineId, database?: string): string => {
   }
 };
 
-/** The archive's object key within a destination: prefix + timestamp subfolder + engine subfolder + clean file name. */
+/** The archive's object key within a destination: prefix + engine subfolder + timestamp subfolder + clean file name. */
 export function archiveObjectKey(prefix: string, engine: "mongodb", date?: Date, database?: string): string;
 export function archiveObjectKey(prefix: string, engine: "postgres", date: Date, database: string): string;
 export function archiveObjectKey(prefix: string, engine: EngineId, date?: Date, database?: string): string;
 export function archiveObjectKey(prefix: string, engine: EngineId, date: Date = new Date(), database?: string): string {
   const timestamp = objectTimestamp(date);
-  return `${prefix}${timestamp}/${engine}/${archiveFileNameFor(engine, database)}`;
+  return `${prefix}${engine}/${timestamp}/${archiveFileNameFor(engine, database)}`;
 }
 
 /** A finished archive's file name — never a `.part` staging file or a foreign file. */

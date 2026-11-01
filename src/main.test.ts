@@ -86,9 +86,9 @@ describe("runPostgresBackup multi-database flow", () => {
 
       // 3. Check delivery keys match per-database format
       expect(deliveredKeys).toEqual([
-        "backups/2026-10-25T120000Z/postgres/postgres.dump.age",
-        "backups/2026-10-25T120000Z/postgres/app_db.dump.age",
-        "backups/2026-10-25T120000Z/postgres/reporting.dump.age",
+        "backups/postgres/2026-10-25_12-00-00/postgres.dump.age",
+        "backups/postgres/2026-10-25_12-00-00/app_db.dump.age",
+        "backups/postgres/2026-10-25_12-00-00/reporting.dump.age",
       ]);
     } finally {
       await rm(workDir, { recursive: true, force: true });
@@ -147,7 +147,7 @@ describe("runPostgresBackup multi-database flow", () => {
       ).rejects.toThrowError(/One or more databases failed to back up: failing_db: pg_dump failed/);
 
       // Verify that succeeding_db was STILL dumped, encrypted, and delivered!
-      expect(deliveredKeys).toEqual(["backups/2026-10-25T120000Z/postgres/succeeding_db.dump.age"]);
+      expect(deliveredKeys).toEqual(["backups/postgres/2026-10-25_12-00-00/succeeding_db.dump.age"]);
     } finally {
       await rm(workDir, { recursive: true, force: true });
     }
@@ -203,7 +203,7 @@ describe("runPostgresBackup multi-database flow", () => {
       ).rejects.toThrowError(/One or more databases failed to back up: db1: One or more destinations failed: r2 \(delivery\): R2 upload timeout/);
 
       // Verify db2 was still delivered!
-      expect(deliveredKeys).toEqual(["backups/2026-10-25T120000Z/postgres/db2.dump.age"]);
+      expect(deliveredKeys).toEqual(["backups/postgres/2026-10-25_12-00-00/db2.dump.age"]);
     } finally {
       await rm(workDir, { recursive: true, force: true });
     }
@@ -290,8 +290,8 @@ describe("runPostgresBackup multi-database flow", () => {
         "postgresql://backup-user@db.internal:5432/app_prod?sslmode=require",
       ]);
       expect(deliveredKeys).toEqual([
-        "backups/2026-10-25T120000Z/postgres/postgres.dump.age",
-        "backups/2026-10-25T120000Z/postgres/app_prod.dump.age",
+        "backups/postgres/2026-10-25_12-00-00/postgres.dump.age",
+        "backups/postgres/2026-10-25_12-00-00/app_prod.dump.age",
       ]);
     } finally {
       await rm(workDir, { recursive: true, force: true });
@@ -382,7 +382,7 @@ describe("runMongodbBackup flow", () => {
       expect(mongodumpCalls).toHaveLength(1);
       expect(mongodumpCalls[0].args).toContain("--oplog");
       expect(mongodumpCalls[0].args.some((a) => a.startsWith("--db="))).toBe(false);
-      expect(deliveredKeys).toEqual(["backups/2026-10-25T120000Z/mongodb/mongodb.archive.gz.age"]);
+      expect(deliveredKeys).toEqual(["backups/mongodb/2026-10-25_12-00-00/mongodb.archive.gz.age"]);
     } finally {
       await rm(workDir, { recursive: true, force: true });
     }
@@ -444,8 +444,8 @@ describe("runMongodbBackup flow", () => {
       expect(mongodumpCalls[1].args).not.toContain("--oplog");
 
       expect(deliveredKeys).toEqual([
-        "backups/2026-10-25T120000Z/mongodb/users_prod.archive.gz.age",
-        "backups/2026-10-25T120000Z/mongodb/orders_prod.archive.gz.age",
+        "backups/mongodb/2026-10-25_12-00-00/users_prod.archive.gz.age",
+        "backups/mongodb/2026-10-25_12-00-00/orders_prod.archive.gz.age",
       ]);
     } finally {
       await rm(workDir, { recursive: true, force: true });

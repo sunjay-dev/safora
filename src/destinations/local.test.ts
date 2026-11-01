@@ -195,10 +195,10 @@ describe("local destination retention", () => {
     const backupDir = join(workspace, "backup-root");
     const destination = createLocalDestination(localConfig(backupDir, { RETENTION_DAYS: "7" }));
 
-    const expiredDateFolder = "backups/2026-10-01T000000Z";
-    const expiredFolder = `${expiredDateFolder}/postgres`;
-    const currentDateFolder = "backups/2026-10-24T021715Z";
-    const currentFolder = `${currentDateFolder}/postgres`;
+    const expiredEngineFolder = "backups/postgres";
+    const expiredFolder = `${expiredEngineFolder}/2026-10-01_00-00-00`;
+    const currentEngineFolder = "backups/postgres";
+    const currentFolder = `${currentEngineFolder}/2026-10-24_02-17-15`;
     await mkdir(join(backupDir, expiredFolder), { recursive: true });
     await mkdir(join(backupDir, currentFolder), { recursive: true });
 
@@ -217,15 +217,14 @@ describe("local destination retention", () => {
     const pruned = await destination.prune(currentKey);
     expect(pruned.sort()).toEqual([expiredKey2, expiredKey1].sort());
 
-    // Both files in expiredFolder should be deleted, and both the postgres subfolder and date folder should be cleaned up
+    // Both files in expiredFolder should be deleted, and the date folder should be cleaned up
     expect(await fileExists(join(backupDir, expiredKey1))).toBe(false);
     expect(await fileExists(join(backupDir, expiredKey2))).toBe(false);
     expect(await fileExists(join(backupDir, expiredFolder))).toBe(false);
-    expect(await fileExists(join(backupDir, expiredDateFolder))).toBe(false);
 
     // Current backup and its folders should remain untouched
     expect(await fileExists(join(backupDir, currentKey))).toBe(true);
     expect(await fileExists(join(backupDir, currentFolder))).toBe(true);
-    expect(await fileExists(join(backupDir, currentDateFolder))).toBe(true);
+    expect(await fileExists(join(backupDir, currentEngineFolder))).toBe(true);
   });
 });
