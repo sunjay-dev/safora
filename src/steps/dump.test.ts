@@ -2,9 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { PostgresConfig } from "../config/env.config.js";
+import type { MongoClient } from "mongodb";
+import type { MongodbConfig, PostgresConfig } from "../config/env.config.js";
 import type { ExecFileFn } from "../lib/exec.js";
-import { enumeratePostgresDatabases, runPostgresDump, verifyPostgresArchive } from "./dump.js";
+import { enumerateMongodbDatabases, enumeratePostgresDatabases, runMongodbDump, runPostgresDump, verifyPostgresArchive } from "./dump.js";
 
 const basePostgresConfig: PostgresConfig = {
   ENGINE: "postgres",
@@ -190,5 +191,95 @@ describe("runPostgresDump execution and validation flow", () => {
     } finally {
       await rm(workDir, { recursive: true, force: true });
     }
+  });
+});
+
+const baseMongoConfig: MongodbConfig = {
+  ENGINE: "mongodb",
+  MONGODB_URI: "mongodb://backup-user:secret-pass@cluster0.mongodb.net/admin",
+  AGE_RECIPIENT: "age1mock",
+  LOG_LEVEL: "info",
+  RETENTION_DAYS: 30,
+  BACKUP_PREFIX: "backups/",
+  DUMP_TIMEOUT_MS: 5000,
+  TOOL_CHECK_TIMEOUT_MS: 1000,
+  MAX_BUFFER: 1024 * 1024,
+  DESTINATIONS: ["local"],
+};
+
+describe("runMongodbDump", () => {
+  it("dumps cluster with --oplog when database is omitted", async () => {
+    const workDir = await mkdtemp(join(tmpdir(), "mongo-dump-test-"));
+    const archivePath = join(workDir, "dump.archive.gz");
+    const fakeExec = (async (_cmd: string, args: readonly string[]) => {
+      expect(args).toContain("--oplog");
+      expect(args.some((a) => a.startsWith("--db="))).toBe(false);
+      await writeFile(archivePath, Buffer.from("fake cluster dump"));
+      return { stdout: "", stderr: "" };
+    }) as unknown as ExecFileFn;
+
+    try {
+      const result = await runMongodbDump(baseMongoConfig, workDir, fakeExec);
+      expect(result.archivePath).toBe(archivePath);
+      expect(result.bytes).toBeGreaterThan(0);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it("dumps specific database with --db and without --oplog when database is provided", async () => {
+    const workDir = await mkdtemp(join(tmpdir(), "mongo-dump-test-"));
+    const archivePath = join(workDir, "dump-my_db.archive.gz");
+    const fakeExec = (async (_cmd: string, args: readonly string[]) => {
+      expect(args).toContain("--db=my_db");
+      expect(args).not.toContain("--oplog");
+      await writeFile(archivePath, Buffer.from("fake db dump"));
+      return { stdout: "", stderr: "" };
+    }) as unknown as ExecFileFn;
+
+    try {
+      const result = await runMongodbDump(baseMongoConfig, workDir, fakeExec, "my_db");
+      expect(result.archivePath).toBe(archivePath);
+      expect(result.bytes).toBeGreaterThan(0);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("enumerateMongodbDatabases", () => {
+  it("lists databases excluding local system database", async () => {
+    const mockClient = {
+      connect: async () => {},
+      db: () => ({
+        admin: () => ({
+          listDatabases: async () => ({
+            databases: [{ name: "admin" }, { name: "local" }, { name: "app_prod" }, { name: "config" }],
+          }),
+        }),
+      }),
+      close: async () => {},
+    };
+
+    const databases = await enumerateMongodbDatabases(baseMongoConfig, () => mockClient as unknown as MongoClient);
+    expect(databases).toEqual(["admin", "app_prod", "config"]);
+  });
+
+  it("fails loudly when zero databases are found", async () => {
+    const mockClient = {
+      connect: async () => {},
+      db: () => ({
+        admin: () => ({
+          listDatabases: async () => ({
+            databases: [{ name: "local" }],
+          }),
+        }),
+      }),
+      close: async () => {},
+    };
+
+    await expect(enumerateMongodbDatabases(baseMongoConfig, () => mockClient as unknown as MongoClient)).rejects.toThrowError(
+      /no databases to back up/,
+    );
   });
 });

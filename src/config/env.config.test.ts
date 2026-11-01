@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig, parseDestinations, parseEngine, VALID_DESTINATIONS, VALID_ENGINES } from "./env.config.js";
+import {
+  loadConfig,
+  type MongodbConfig,
+  parseDbBlocklist,
+  parseDestinations,
+  parseEngine,
+  type PostgresConfig,
+  VALID_DESTINATIONS,
+  VALID_ENGINES,
+} from "./env.config.js";
 
 const validBaseEnv = {
   MONGODB_URI: "mongodb://localhost:27017/test",
@@ -84,6 +93,35 @@ describe("parseDestinations", () => {
     expect(() => parseDestinations("r2, r2")).toThrowError(/Duplicate destination "r2"/);
     expect(() => parseDestinations("local, LOCAL")).toThrowError(/Duplicate destination "local"/);
     expect(() => parseDestinations("r2, local, r2")).toThrowError(/Duplicate destination "r2"/);
+  });
+});
+
+describe("parseDbBlocklist", () => {
+  it("returns [] when unset, empty, or blank", () => {
+    expect(parseDbBlocklist(undefined)).toEqual([]);
+    expect(parseDbBlocklist("")).toEqual([]);
+    expect(parseDbBlocklist("   ")).toEqual([]);
+    expect(parseDbBlocklist(",")).toEqual([]);
+    expect(parseDbBlocklist(" , , ")).toEqual([]);
+  });
+
+  it("returns a single exact name as a pattern", () => {
+    expect(parseDbBlocklist("postgres")).toEqual(["postgres"]);
+  });
+
+  it("returns glob patterns verbatim (minimatch handles matching)", () => {
+    expect(parseDbBlocklist("prisma_migrate_shadow_db_*")).toEqual(["prisma_migrate_shadow_db_*"]);
+    expect(parseDbBlocklist("*_test")).toEqual(["*_test"]);
+  });
+
+  it("splits on commas and trims each entry", () => {
+    expect(parseDbBlocklist("prisma_migrate_shadow_db_*, *_test, template*")).toEqual(["prisma_migrate_shadow_db_*", "*_test", "template*"]);
+  });
+
+  it("ignores empty segments including trailing commas", () => {
+    expect(parseDbBlocklist("postgres,")).toEqual(["postgres"]);
+    expect(parseDbBlocklist(",postgres,")).toEqual(["postgres"]);
+    expect(parseDbBlocklist("postgres,,template*")).toEqual(["postgres", "template*"]);
   });
 });
 
@@ -176,15 +214,39 @@ describe("loadConfig engine validation matrix", () => {
 
   it("returns only the selected engine's connection variable", () => {
     const mongodbConfig = loadConfig(validR2Env);
-    expect(mongodbConfig).toMatchObject({ ENGINE: "mongodb", MONGODB_URI: "mongodb://localhost:27017/test" });
+    expect(mongodbConfig).toMatchObject({
+      ENGINE: "mongodb",
+      MONGODB_URI: "mongodb://localhost:27017/test",
+      MONGODB_DB_BLOCKLIST: [],
+    });
     expect(mongodbConfig).not.toHaveProperty("POSTGRESQL_URI");
 
     const postgresConfig = loadConfig(validPostgresEnv);
     expect(postgresConfig).toMatchObject({
       ENGINE: "postgres",
       POSTGRESQL_URI: "postgresql://backup-user:backup-password@db.internal:5432/app?sslmode=require",
+      PG_DB_BLOCKLIST: [],
     });
     expect(postgresConfig).not.toHaveProperty("MONGODB_URI");
+
+    const mongodbWithBlocklist = loadConfig({
+      ...validR2Env,
+      MONGODB_DB_BLOCKLIST: "scratch_*, *_dev",
+    });
+    expect((mongodbWithBlocklist as MongodbConfig).MONGODB_DB_BLOCKLIST).toEqual(["scratch_*", "*_dev"]);
+
+    // DB_BLOCKLIST fallback for both engines
+    const mongoWithCommonBlocklist = loadConfig({
+      ...validR2Env,
+      DB_BLOCKLIST: "common_junk_*",
+    });
+    expect((mongoWithCommonBlocklist as MongodbConfig).MONGODB_DB_BLOCKLIST).toEqual(["common_junk_*"]);
+
+    const pgWithCommonBlocklist = loadConfig({
+      ...validPostgresEnv,
+      DB_BLOCKLIST: "common_junk_*",
+    });
+    expect((pgWithCommonBlocklist as PostgresConfig).PG_DB_BLOCKLIST).toEqual(["common_junk_*"]);
   });
 });
 

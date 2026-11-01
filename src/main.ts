@@ -1,3 +1,4 @@
+import { minimatch } from "minimatch";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ import { execFileAsync, type ExecFileFn } from "./lib/exec.js";
 import { archiveObjectKey, mib } from "./lib/format.js";
 import { splitPostgresUri, withPgpassFile } from "./lib/postgres.js";
 import { fail, logger, sanitize, setRedactionSecrets } from "./logging.js";
-import { enumeratePostgresDatabases, runMongodbDump, runPostgresDump } from "./steps/dump.js";
+import { enumerateMongodbDatabases, enumeratePostgresDatabases, runMongodbDump, runPostgresDump } from "./steps/dump.js";
 import { encryptArchive } from "./steps/encrypt.js";
 import { renderSummary, writeSummary } from "./summary.js";
 import { assertPreflightTools } from "./tools.js";
@@ -20,9 +21,15 @@ export interface BackupExecutionOptions {
   encrypt?: typeof encryptArchive;
   deliver?: typeof deliverArchive;
   writeSummary?: typeof writeSummary;
+  enumerateMongodbDbs?: typeof enumerateMongodbDatabases;
 }
 
-/** Runs the backup flow for MongoDB: dumps the cluster to a single archive, encrypts, and delivers. */
+/**
+ * Runs the backup flow for MongoDB.
+ * If MONGODB_DB_BLOCKLIST is set and non-empty, enumerates databases, filters them,
+ * and backs up each allowed database individually.
+ * Otherwise, runs the default cluster-wide dump with --oplog.
+ */
 export async function runMongodbBackup(
   config: MongodbConfig,
   destinations: readonly Destination[],
@@ -34,6 +41,69 @@ export async function runMongodbBackup(
   const encrypt = options.encrypt ?? encryptArchive;
   const deliver = options.deliver ?? deliverArchive;
   const writeSum = options.writeSummary ?? writeSummary;
+  const enumerateDbs = options.enumerateMongodbDbs ?? enumerateMongodbDatabases;
+
+  const blocklist = config.MONGODB_DB_BLOCKLIST ?? [];
+  if (blocklist.length > 0) {
+    const databases = await enumerateDbs(config);
+    logger.info({ databases, count: databases.length }, "enumerated mongodb databases");
+
+    const { allowed, blocked } = databases.reduce<{ allowed: string[]; blocked: string[] }>(
+      (acc, db) => {
+        const matchedPattern = blocklist.find((pattern) => minimatch(db, pattern));
+        if (matchedPattern) {
+          acc.blocked.push(db);
+        } else {
+          acc.allowed.push(db);
+        }
+        return acc;
+      },
+      { allowed: [], blocked: [] },
+    );
+
+    if (blocked.length > 0) {
+      logger.info({ blocked, patterns: blocklist }, "databases excluded by MONGODB_DB_BLOCKLIST");
+    }
+    logger.info({ databases: allowed, count: allowed.length }, "databases selected for backup");
+
+    if (allowed.length === 0) {
+      fail(`No databases to back up after applying MONGODB_DB_BLOCKLIST (${databases.length} discovered, all excluded).`);
+    }
+
+    const failures: Array<{ database: string; error: unknown }> = [];
+
+    for (const database of allowed) {
+      const objectKey = archiveObjectKey(config.BACKUP_PREFIX, "mongodb", now, database);
+      try {
+        const dump = await runMongodbDump(config, workDir, exec, database);
+        logger.info({ database, bytes: dump.bytes, human: mib(dump.bytes) }, "mongodump complete (gzipped archive)");
+
+        const encrypted = await encrypt(config, dump.archivePath);
+        logger.info({ database, bytes: encrypted.bytes, human: mib(encrypted.bytes) }, "archive encrypted with age");
+
+        const outcomes = await deliver(destinations, encrypted.encryptedPath, objectKey);
+        await writeSum(renderSummary(outcomes, config.RETENTION_DAYS, objectKey, `### MongoDB backup summary (${database})`));
+
+        await rm(dump.archivePath, { force: true }).catch(() => undefined);
+        await rm(encrypted.encryptedPath, { force: true }).catch(() => undefined);
+
+        const failed = failedOutcomes(outcomes);
+        if (failed.length > 0) {
+          const details = failed.map((outcome) => `${outcome.id} (${outcome.failure.stage}): ${outcome.failure.message}`).join("; ");
+          failures.push({ database, error: new Error(`One or more destinations failed: ${details}`) });
+        }
+      } catch (err) {
+        logger.error({ database, detail: sanitize(err instanceof Error ? (err.stack ?? err.message) : String(err)) }, "database backup failed");
+        failures.push({ database, error: err });
+      }
+    }
+
+    if (failures.length > 0) {
+      const details = failures.map((f) => `${f.database}: ${f.error instanceof Error ? f.error.message : String(f.error)}`).join("; ");
+      fail(`One or more databases failed to back up: ${details}`);
+    }
+    return;
+  }
 
   const objectKey = archiveObjectKey(config.BACKUP_PREFIX, "mongodb", now);
   const dump = await runMongodbDump(config, workDir, exec);
@@ -75,9 +145,33 @@ export async function runPostgresBackup(
     const databases = await enumeratePostgresDatabases(config, pgpassPath, exec);
     logger.info({ databases, count: databases.length }, "enumerated postgres databases");
 
+    // Apply PG_DB_BLOCKLIST: skip databases matching any glob pattern (e.g. "prisma_migrate_shadow_db_*,*_test")
+    const blocklist = config.PG_DB_BLOCKLIST ?? [];
+    const { allowed, blocked } = databases.reduce<{ allowed: string[]; blocked: string[] }>(
+      (acc, db) => {
+        const matchedPattern = blocklist.find((pattern) => minimatch(db, pattern));
+        if (matchedPattern) {
+          acc.blocked.push(db);
+        } else {
+          acc.allowed.push(db);
+        }
+        return acc;
+      },
+      { allowed: [], blocked: [] },
+    );
+
+    if (blocked.length > 0) {
+      logger.info({ blocked, patterns: blocklist }, "databases excluded by PG_DB_BLOCKLIST");
+    }
+    logger.info({ databases: allowed, count: allowed.length }, "databases selected for backup");
+
+    if (allowed.length === 0) {
+      fail(`No databases to back up after applying PG_DB_BLOCKLIST (${databases.length} discovered, all excluded).`);
+    }
+
     const failures: Array<{ database: string; error: unknown }> = [];
 
-    for (const database of databases) {
+    for (const database of allowed) {
       const objectKey = archiveObjectKey(config.BACKUP_PREFIX, "postgres", now, database);
       try {
         const dump = await runPostgresDump(config, workDir, database, pgpassPath, exec);

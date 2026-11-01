@@ -6,6 +6,7 @@ describe("archiveObjectKey", () => {
     const date = new Date("2026-10-24T02:17:15Z");
 
     expect(archiveObjectKey("backups/", "mongodb", date)).toBe("backups/mongodb-2026-10-24T021715Z.archive.gz.age");
+    expect(archiveObjectKey("backups/", "mongodb", date, "app_db")).toBe("backups/mongodb-app_db-2026-10-24T021715Z.archive.gz.age");
   });
 
   it("places the postgres dump under the backup prefix with per-database naming", () => {
@@ -26,6 +27,7 @@ describe("archiveObjectKey", () => {
 describe("isArchiveFileName", () => {
   it("accepts a finished mongodb archive name", () => {
     expect(isArchiveFileName("mongodb-2026-10-24T021715Z.archive.gz.age")).toBe(true);
+    expect(isArchiveFileName("mongodb-app_db-2026-10-24T021715Z.archive.gz.age")).toBe(true);
   });
 
   it("accepts a finished postgres per-database dump name", () => {

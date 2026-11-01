@@ -92,6 +92,8 @@ jobs:
       - name: Run backup
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DB_BLOCKLIST: ${{ vars.MONGODB_DB_BLOCKLIST }}
+          DB_BLOCKLIST: ${{ vars.DB_BLOCKLIST }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -155,6 +157,8 @@ jobs:
         env:
           ENGINE: postgres
           POSTGRESQL_URI: ${{ secrets.POSTGRESQL_URI }}
+          PG_DB_BLOCKLIST: ${{ vars.PG_DB_BLOCKLIST }}
+          DB_BLOCKLIST: ${{ vars.DB_BLOCKLIST }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

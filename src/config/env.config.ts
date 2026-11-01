@@ -73,6 +73,22 @@ export const PostgresEnvSchema = v.object({
   POSTGRESQL_URI: postgresqlUri,
 });
 
+/**
+ * Parses PG_DB_BLOCKLIST: a comma-separated list of glob patterns.
+ * Each pattern is trimmed; blank entries are ignored.
+ * Supports * as a wildcard (e.g. "prisma_migrate_shadow_db_*,*_test").
+ * Returns an empty array when the variable is unset or blank (= no blocklist, back up all databases).
+ */
+export function parseDbBlocklist(raw?: string): string[] {
+  if (raw === undefined || raw.trim() === "") {
+    return [];
+  }
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 export const R2EnvSchema = v.object({
   R2_ENDPOINT: v.pipe(
     v.string(),
@@ -107,8 +123,8 @@ export interface BaseConfig {
   LOCAL_BACKUP_DIR?: string;
 }
 
-export type MongodbConfig = BaseConfig & { ENGINE: "mongodb"; MONGODB_URI: string };
-export type PostgresConfig = BaseConfig & { ENGINE: "postgres"; POSTGRESQL_URI: string };
+export type MongodbConfig = BaseConfig & { ENGINE: "mongodb"; MONGODB_URI: string; MONGODB_DB_BLOCKLIST?: string[] };
+export type PostgresConfig = BaseConfig & { ENGINE: "postgres"; POSTGRESQL_URI: string; PG_DB_BLOCKLIST?: string[] };
 export type Config = MongodbConfig | PostgresConfig;
 
 export function parseEngine(raw?: string): EngineId {
@@ -247,10 +263,20 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
 
   if (engine === "mongodb") {
-    return { ...base, ENGINE: "mongodb", ...mongodbOutput! };
+    return {
+      ...base,
+      ENGINE: "mongodb",
+      ...mongodbOutput!,
+      MONGODB_DB_BLOCKLIST: parseDbBlocklist(env.MONGODB_DB_BLOCKLIST ?? env.DB_BLOCKLIST),
+    };
   }
   if (engine === "postgres") {
-    return { ...base, ENGINE: "postgres", ...postgresOutput! };
+    return {
+      ...base,
+      ENGINE: "postgres",
+      ...postgresOutput!,
+      PG_DB_BLOCKLIST: parseDbBlocklist(env.PG_DB_BLOCKLIST ?? env.DB_BLOCKLIST),
+    };
   }
   throw new Error("Invalid configuration:\n  - ENGINE: missing environment variable");
 }

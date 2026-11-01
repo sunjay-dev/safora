@@ -1,5 +1,6 @@
 import { chmod, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { MongoClient } from "mongodb";
 import type { Config, MongodbConfig, PostgresConfig } from "../config/env.config.js";
 import { execDetail, execFileAsync, type ExecFileFn } from "../lib/exec.js";
 import {
@@ -14,21 +15,29 @@ import {
 } from "../lib/postgres.js";
 import { fail } from "../logging.js";
 
-/** Full-cluster MongoDB dump to a single gzipped archive; URI supplied via a private config file. */
+/** Full-cluster or per-database MongoDB dump to a gzipped archive; URI supplied via a private config file. */
 export async function runMongodbDump(
   config: MongodbConfig,
   workDir: string,
   exec: ExecFileFn = execFileAsync,
+  database?: string,
 ): Promise<{ archivePath: string; bytes: number }> {
-  const dumpConfigPath = join(workDir, "mongodump.conf");
+  const dumpConfigPath = join(workDir, database ? `mongodump-${database}.conf` : "mongodump.conf");
   await writeFile(dumpConfigPath, `${JSON.stringify({ uri: config.MONGODB_URI })}\n`, {
     mode: 0o600,
   });
   await chmod(dumpConfigPath, 0o600);
 
-  const archivePath = join(workDir, "dump.archive.gz");
+  const archivePath = join(workDir, database ? `dump-${database}.archive.gz` : "dump.archive.gz");
+  const args = ["--config", dumpConfigPath, `--archive=${archivePath}`, "--gzip"];
+  if (database) {
+    args.push(`--db=${database}`);
+  } else {
+    args.push("--oplog");
+  }
+
   try {
-    await exec("mongodump", ["--config", dumpConfigPath, `--archive=${archivePath}`, "--gzip", "--oplog"], {
+    await exec("mongodump", args, {
       timeout: config.DUMP_TIMEOUT_MS,
       maxBuffer: config.MAX_BUFFER,
     });
@@ -43,6 +52,34 @@ export async function runMongodbDump(
     fail("mongodump reported success but produced an empty archive.");
   }
   return { archivePath, bytes };
+}
+
+/**
+ * Enumerates all non-system databases on the MongoDB cluster using MongoClient.
+ * Fails loudly if zero databases are returned.
+ */
+export async function enumerateMongodbDatabases(
+  config: MongodbConfig,
+  clientFactory: (uri: string) => MongoClient = (uri) => new MongoClient(uri),
+): Promise<string[]> {
+  const client = clientFactory(config.MONGODB_URI);
+  try {
+    await client.connect();
+    const adminDb = client.db("admin").admin();
+    const result = await adminDb.listDatabases();
+    const databases = (result.databases ?? [])
+      .map((db) => db.name)
+      .filter((name) => name !== "local")
+      .sort();
+    if (databases.length === 0) {
+      fail("no databases to back up");
+    }
+    return databases;
+  } catch (err) {
+    fail(`Failed to enumerate MongoDB databases:\n${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  } finally {
+    await client.close().catch(() => undefined);
+  }
 }
 
 /** Validates a custom-format PostgreSQL archive using `pg_restore --list`. Fails if output is empty. */
