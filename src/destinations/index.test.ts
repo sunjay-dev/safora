@@ -7,12 +7,12 @@ const validBaseEnv = {
   AGE_RECIPIENT: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
 };
 
-const validR2Env = {
+const validS3Env = {
   ...validBaseEnv,
-  R2_ENDPOINT: "https://example.r2.cloudflarestorage.com",
-  R2_ACCESS_KEY_ID: "mock-access-key-id",
-  R2_SECRET_ACCESS_KEY: "mock-secret-access-key",
-  R2_BUCKET: "mock-bucket",
+  S3_ENDPOINT: "https://example.r2.cloudflarestorage.com",
+  S3_ACCESS_KEY_ID: "mock-access-key-id",
+  S3_SECRET_ACCESS_KEY: "mock-secret-access-key",
+  S3_BUCKET: "mock-bucket",
 };
 
 const validLocalEnv = {
@@ -22,12 +22,12 @@ const validLocalEnv = {
 
 describe("buildDestinations", () => {
   it("builds the selected destinations in the listed order", () => {
-    const config = loadConfig({ ...validR2Env, ...validLocalEnv, DESTINATIONS: "r2,local" });
+    const config = loadConfig({ ...validS3Env, ...validLocalEnv, DESTINATIONS: "s3,local" });
 
-    expect(buildDestinations(config).map((destination) => destination.id)).toEqual(["r2", "local"]);
+    expect(buildDestinations(config).map((destination) => destination.id)).toEqual(["s3", "local"]);
   });
 
-  it("builds a local-only run without R2 credentials", () => {
+  it("builds a local-only run without S3 credentials", () => {
     const config = loadConfig({ ...validLocalEnv, DESTINATIONS: "local" });
 
     expect(buildDestinations(config).map((destination) => destination.id)).toEqual(["local"]);

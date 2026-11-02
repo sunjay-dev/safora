@@ -1,7 +1,7 @@
 import type { Config, DestinationId } from "../config/env.config.js";
 import type { Destination } from "./destination.js";
 import { createLocalDestination } from "./local.js";
-import { createR2Destination } from "./r2.js";
+import { createS3Destination } from "./s3.js";
 
 /** The destinations selected for this run, in delivery order. */
 export function buildDestinations(config: Config): Destination[] {
@@ -10,8 +10,8 @@ export function buildDestinations(config: Config): Destination[] {
 
 function createDestination(id: DestinationId, config: Config): Destination {
   switch (id) {
-    case "r2":
-      return createR2Destination(config);
+    case "s3":
+      return createS3Destination(config);
     case "local":
       return createLocalDestination(config);
   }

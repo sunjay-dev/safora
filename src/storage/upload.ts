@@ -19,7 +19,7 @@ export async function uploadAndVerify(
   const upload = new Upload({
     client,
     params: {
-      Bucket: config.R2_BUCKET,
+      Bucket: config.S3_BUCKET,
       Key: objectKey,
       Body: createReadStream(filePath),
       ContentLength: bytes,
@@ -31,9 +31,9 @@ export async function uploadAndVerify(
   });
   await upload.done();
 
-  const head = await client.send(new HeadObjectCommand({ Bucket: config.R2_BUCKET, Key: objectKey }));
+  const head = await client.send(new HeadObjectCommand({ Bucket: config.S3_BUCKET, Key: objectKey }));
   if (head.ContentLength !== bytes) {
-    fail(`Upload verification failed: R2 reports ${head.ContentLength ?? "?"} bytes for ${objectKey}, local file is ${bytes}.`);
+    fail(`Upload verification failed: S3 reports ${head.ContentLength ?? "?"} bytes for ${objectKey}, local file is ${bytes}.`);
   }
   return { bytes, sha256 };
 }

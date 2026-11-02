@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VALID_DESTINATIONS = ["r2", "local"] as const;
+export const VALID_DESTINATIONS = ["s3", "local"] as const;
 export type DestinationId = (typeof VALID_DESTINATIONS)[number];
 
 export const VALID_ENGINES = ["mongodb", "postgres"] as const;
@@ -113,22 +113,137 @@ function pickBlocklist(specific?: string, fallback?: string): string | undefined
   return undefined;
 }
 
-export const R2EnvSchema = z.object({
-  R2_ENDPOINT: z
-    .string()
-    .trim()
-    .min(1, "R2_ENDPOINT must not be empty")
-    .startsWith("https://", "R2_ENDPOINT must use https://")
-    .url("R2_ENDPOINT must be a valid URL")
-    .transform((raw) => raw.replace(/\/+$/, "")),
-  R2_ACCESS_KEY_ID: requiredString("R2_ACCESS_KEY_ID"),
-  R2_SECRET_ACCESS_KEY: requiredString("R2_SECRET_ACCESS_KEY"),
-  R2_BUCKET: requiredString("R2_BUCKET"),
-});
-
 export const LocalEnvSchema = z.object({
   LOCAL_BACKUP_DIR: requiredString("LOCAL_BACKUP_DIR"),
 });
+
+export const S3EnvSchema = z
+  .object({
+    S3_BUCKET: requiredString("S3_BUCKET"),
+    S3_ENDPOINT: z.string().optional(),
+    S3_REGION: z.string().optional(),
+    S3_ACCESS_KEY_ID: z.string().optional(),
+    S3_SECRET_ACCESS_KEY: z.string().optional(),
+    S3_FORCE_PATH_STYLE: z.string().optional(),
+  })
+  .superRefine((env, ctx) => {
+    // 1. S3_ENDPOINT
+    const s3EndpointRaw = env.S3_ENDPOINT;
+    const s3Endpoint = s3EndpointRaw?.trim();
+
+    if (s3Endpoint !== undefined && s3Endpoint !== "") {
+      try {
+        const url = new URL(s3Endpoint);
+        if (url.protocol !== "http:" && url.protocol !== "https:") {
+          ctx.addIssue({
+            code: "custom",
+            path: ["S3_ENDPOINT"],
+            message: "S3_ENDPOINT must use http:// or https://",
+          });
+        }
+      } catch {
+        ctx.addIssue({
+          code: "custom",
+          path: ["S3_ENDPOINT"],
+          message: "S3_ENDPOINT must be a valid URL",
+        });
+      }
+    }
+
+    // 2. Credentials boundary: if either is set, both must be set
+    const s3KeyRaw = env.S3_ACCESS_KEY_ID;
+    const s3SecretRaw = env.S3_SECRET_ACCESS_KEY;
+    const s3KeyTrimmed = s3KeyRaw?.trim();
+    const s3SecretTrimmed = s3SecretRaw?.trim();
+
+    const s3KeyDefined = s3KeyRaw !== undefined;
+    const s3SecretDefined = s3SecretRaw !== undefined;
+    const hasS3Key = Boolean(s3KeyTrimmed && s3KeyTrimmed.length > 0);
+    const hasS3Secret = Boolean(s3SecretTrimmed && s3SecretTrimmed.length > 0);
+
+    if (hasS3Key || hasS3Secret || (s3KeyDefined && s3KeyTrimmed === "") || (s3SecretDefined && s3SecretTrimmed === "")) {
+      if (!hasS3Key) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["S3_ACCESS_KEY_ID"],
+          message: !s3KeyDefined ? "missing environment variable" : "S3_ACCESS_KEY_ID must not be empty",
+        });
+      }
+      if (!hasS3Secret) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["S3_SECRET_ACCESS_KEY"],
+          message: !s3SecretDefined ? "missing environment variable" : "S3_SECRET_ACCESS_KEY must not be empty",
+        });
+      }
+    }
+
+    // 3. S3_FORCE_PATH_STYLE
+    const forcePathStyleRaw = env.S3_FORCE_PATH_STYLE?.trim();
+    if (forcePathStyleRaw !== undefined && forcePathStyleRaw !== "") {
+      const lower = forcePathStyleRaw.toLowerCase();
+      if (lower !== "true" && lower !== "1" && lower !== "false" && lower !== "0") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["S3_FORCE_PATH_STYLE"],
+          message: "S3_FORCE_PATH_STYLE must be a boolean (true or false)",
+        });
+      }
+    }
+  })
+  .transform((env) => {
+    // 1. Bucket resolution
+    const resolvedBucket = env.S3_BUCKET.trim();
+
+    // 2. Endpoint resolution
+    const s3Endpoint = env.S3_ENDPOINT?.trim();
+    const resolvedEndpoint = s3Endpoint && s3Endpoint !== "" ? s3Endpoint.replace(/\/+$/, "") : undefined;
+
+    // 3. Region resolution
+    const s3Region = env.S3_REGION?.trim();
+    let resolvedRegion: string | undefined;
+    if (s3Region && s3Region !== "") {
+      resolvedRegion = s3Region;
+    } else {
+      let isR2Endpoint = false;
+      if (resolvedEndpoint) {
+        try {
+          const url = new URL(resolvedEndpoint);
+          if (url.hostname.endsWith(".r2.cloudflarestorage.com") || url.hostname === "r2.cloudflarestorage.com") {
+            isR2Endpoint = true;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      resolvedRegion = isR2Endpoint ? "auto" : undefined;
+    }
+
+    // 4. Credentials resolution
+    const s3KeyTrimmed = env.S3_ACCESS_KEY_ID?.trim();
+    const s3SecretTrimmed = env.S3_SECRET_ACCESS_KEY?.trim();
+    const resolvedAccessKeyId = s3KeyTrimmed && s3KeyTrimmed !== "" ? s3KeyTrimmed : undefined;
+    const resolvedSecretAccessKey = s3SecretTrimmed && s3SecretTrimmed !== "" ? s3SecretTrimmed : undefined;
+
+    // 5. ForcePathStyle resolution
+    let resolvedForcePathStyle = false;
+    const forcePathStyleRaw = env.S3_FORCE_PATH_STYLE?.trim();
+    if (forcePathStyleRaw !== undefined && forcePathStyleRaw !== "") {
+      const lower = forcePathStyleRaw.toLowerCase();
+      if (lower === "true" || lower === "1") {
+        resolvedForcePathStyle = true;
+      }
+    }
+
+    return {
+      S3_BUCKET: resolvedBucket,
+      S3_ENDPOINT: resolvedEndpoint,
+      S3_REGION: resolvedRegion,
+      S3_ACCESS_KEY_ID: resolvedAccessKeyId,
+      S3_SECRET_ACCESS_KEY: resolvedSecretAccessKey,
+      S3_FORCE_PATH_STYLE: resolvedForcePathStyle,
+    };
+  });
 
 export interface BaseConfig {
   AGE_RECIPIENT: string;
@@ -139,10 +254,12 @@ export interface BaseConfig {
   TOOL_CHECK_TIMEOUT_MS: number;
   MAX_BUFFER: number;
   DESTINATIONS: DestinationId[];
-  R2_ENDPOINT?: string;
-  R2_ACCESS_KEY_ID?: string;
-  R2_SECRET_ACCESS_KEY?: string;
-  R2_BUCKET?: string;
+  S3_BUCKET?: string;
+  S3_ENDPOINT?: string;
+  S3_REGION?: string;
+  S3_ACCESS_KEY_ID?: string;
+  S3_SECRET_ACCESS_KEY?: string;
+  S3_FORCE_PATH_STYLE?: boolean;
   LOCAL_BACKUP_DIR?: string;
 }
 
@@ -164,7 +281,7 @@ export function parseEngine(raw?: string): EngineId {
 
 export function parseDestinations(raw?: string): DestinationId[] {
   if (raw === undefined || raw.trim() === "") {
-    return ["r2"];
+    return ["s3"];
   }
 
   const segments = raw
@@ -173,7 +290,7 @@ export function parseDestinations(raw?: string): DestinationId[] {
     .filter((s) => s.length > 0);
 
   if (segments.length === 0) {
-    return ["r2"];
+    return ["s3"];
   }
 
   const seen = new Set<string>();
@@ -183,10 +300,12 @@ export function parseDestinations(raw?: string): DestinationId[] {
     if (!VALID_DESTINATIONS.includes(segment as DestinationId)) {
       throw new Error(`Unknown destination "${segment}". Valid destinations are: ${VALID_DESTINATIONS.join(", ")}`);
     }
-    if (seen.has(segment)) {
+
+    if (seen.has(segment as DestinationId)) {
       throw new Error(`Duplicate destination "${segment}"`);
     }
-    seen.add(segment);
+
+    seen.add(segment as DestinationId);
     destinations.push(segment as DestinationId);
   }
 
@@ -243,13 +362,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     });
   }
 
-  let r2Output: z.infer<typeof R2EnvSchema> | undefined;
-  if (destinations.includes("r2")) {
-    const r2Result = R2EnvSchema.safeParse(env);
-    if (!r2Result.success) {
-      issues.push(...r2Result.error.issues);
+  let s3Output: z.infer<typeof S3EnvSchema> | undefined;
+  if (destinations.includes("s3")) {
+    const s3Result = S3EnvSchema.safeParse(env);
+    if (!s3Result.success) {
+      issues.push(...s3Result.error.issues);
     } else {
-      r2Output = r2Result.data;
+      s3Output = s3Result.data;
     }
   }
 
@@ -281,7 +400,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const base = {
     ...commonOutput!,
     DESTINATIONS: destinations,
-    ...(r2Output ?? {}),
+    ...(s3Output ?? {}),
     ...(localOutput ?? {}),
   };
 

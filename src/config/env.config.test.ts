@@ -6,6 +6,7 @@ import {
   parseDestinations,
   parseEngine,
   type PostgresConfig,
+  S3EnvSchema,
   VALID_DESTINATIONS,
   VALID_ENGINES,
 } from "./env.config.js";
@@ -15,12 +16,13 @@ const validBaseEnv = {
   AGE_RECIPIENT: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
 };
 
-const validR2Env = {
+const validS3Env = {
   ...validBaseEnv,
-  R2_ENDPOINT: "https://example.r2.cloudflarestorage.com",
-  R2_ACCESS_KEY_ID: "mock-access-key-id",
-  R2_SECRET_ACCESS_KEY: "mock-secret-access-key",
-  R2_BUCKET: "mock-bucket",
+  S3_ENDPOINT: "https://s3.amazonaws.com",
+  S3_ACCESS_KEY_ID: "mock-s3-access-key-id",
+  S3_SECRET_ACCESS_KEY: "mock-s3-secret-access-key",
+  S3_BUCKET: "mock-s3-bucket",
+  S3_REGION: "us-east-1",
 };
 
 const validLocalEnv = {
@@ -29,9 +31,21 @@ const validLocalEnv = {
   LOCAL_BACKUP_DIR: "/var/backups/mongodb",
 };
 
+const validPostgresEnv = {
+  ...validS3Env,
+  ENGINE: "postgres",
+  POSTGRESQL_URI: "postgresql://backup-user:backup-password@db.internal:5432/app?sslmode=require",
+};
+
 describe("VALID_DESTINATIONS", () => {
-  it("exposes the supported destinations: r2 and local", () => {
-    expect(VALID_DESTINATIONS).toEqual(["r2", "local"]);
+  it("exposes the canonical destinations: s3 and local", () => {
+    expect(VALID_DESTINATIONS).toEqual(["s3", "local"]);
+  });
+});
+
+describe("S3EnvSchema", () => {
+  it("is exported as a Zod schema", () => {
+    expect(S3EnvSchema.safeParse).toBeTypeOf("function");
   });
 });
 
@@ -61,38 +75,40 @@ describe("parseEngine", () => {
 });
 
 describe("parseDestinations", () => {
-  it("defaults to ['r2'] when unset, empty, or blank whitespace", () => {
-    expect(parseDestinations(undefined)).toEqual(["r2"]);
-    expect(parseDestinations("")).toEqual(["r2"]);
-    expect(parseDestinations("   ")).toEqual(["r2"]);
-    expect(parseDestinations("\t \n ")).toEqual(["r2"]);
-    expect(parseDestinations(",")).toEqual(["r2"]);
-    expect(parseDestinations(" , , ")).toEqual(["r2"]);
+  it("defaults to ['s3'] when unset, empty, or blank whitespace", () => {
+    expect(parseDestinations(undefined)).toEqual(["s3"]);
+    expect(parseDestinations("")).toEqual(["s3"]);
+    expect(parseDestinations("   ")).toEqual(["s3"]);
+    expect(parseDestinations("\t \n ")).toEqual(["s3"]);
+    expect(parseDestinations(",")).toEqual(["s3"]);
+    expect(parseDestinations(" , , ")).toEqual(["s3"]);
   });
 
   it("trims and lowercases entries", () => {
-    expect(parseDestinations(" R2 ")).toEqual(["r2"]);
+    expect(parseDestinations(" S3 ")).toEqual(["s3"]);
     expect(parseDestinations(" LOCAL ")).toEqual(["local"]);
-    expect(parseDestinations(" R2 , LOCAL ")).toEqual(["r2", "local"]);
-    expect(parseDestinations("local, r2")).toEqual(["local", "r2"]);
+    expect(parseDestinations(" S3 , LOCAL ")).toEqual(["s3", "local"]);
+    expect(parseDestinations("local, s3")).toEqual(["local", "s3"]);
   });
 
   it("ignores empty segments including trailing commas", () => {
-    expect(parseDestinations("r2,")).toEqual(["r2"]);
-    expect(parseDestinations(",r2,")).toEqual(["r2"]);
-    expect(parseDestinations("r2,,local")).toEqual(["r2", "local"]);
-    expect(parseDestinations("local, r2, ")).toEqual(["local", "r2"]);
+    expect(parseDestinations("s3,")).toEqual(["s3"]);
+    expect(parseDestinations(",s3,")).toEqual(["s3"]);
+    expect(parseDestinations("s3,,local")).toEqual(["s3", "local"]);
+    expect(parseDestinations("local, s3, ")).toEqual(["local", "s3"]);
   });
 
   it("rejects an unknown value with a hard error listing the valid values", () => {
-    expect(() => parseDestinations("s3")).toThrowError(/Unknown destination "s3"\. Valid destinations are: r2, local/);
-    expect(() => parseDestinations("r2, ftp")).toThrowError(/Unknown destination "ftp"\. Valid destinations are: r2, local/);
+    expect(() => parseDestinations("ftp")).toThrowError(/Unknown destination "ftp"\. Valid destinations are: s3, local/);
+    expect(() => parseDestinations("s3, ftp")).toThrowError(/Unknown destination "ftp"\. Valid destinations are: s3, local/);
+    expect(() => parseDestinations("r2")).toThrowError(/Unknown destination "r2"\. Valid destinations are: s3, local/);
+    expect(() => parseDestinations("s3, r2")).toThrowError(/Unknown destination "r2"\. Valid destinations are: s3, local/);
   });
 
   it("rejects duplicate entries", () => {
-    expect(() => parseDestinations("r2, r2")).toThrowError(/Duplicate destination "r2"/);
+    expect(() => parseDestinations("s3, s3")).toThrowError(/Duplicate destination "s3"/);
     expect(() => parseDestinations("local, LOCAL")).toThrowError(/Duplicate destination "local"/);
-    expect(() => parseDestinations("r2, local, r2")).toThrowError(/Duplicate destination "r2"/);
+    expect(() => parseDestinations("s3, local, s3")).toThrowError(/Duplicate destination "s3"/);
   });
 });
 
@@ -125,39 +141,33 @@ describe("parseDbBlocklist", () => {
   });
 });
 
-const validPostgresEnv = {
-  ...validR2Env,
-  ENGINE: "postgres",
-  POSTGRESQL_URI: "postgresql://backup-user:backup-password@db.internal:5432/app?sslmode=require",
-};
-
 describe("loadConfig engine validation matrix", () => {
   it("defaults unset or blank ENGINE to mongodb", () => {
-    expect(loadConfig(validR2Env).ENGINE).toBe("mongodb");
-    expect(loadConfig({ ...validR2Env, ENGINE: "" }).ENGINE).toBe("mongodb");
-    expect(loadConfig({ ...validR2Env, ENGINE: "   " }).ENGINE).toBe("mongodb");
+    expect(loadConfig(validS3Env).ENGINE).toBe("mongodb");
+    expect(loadConfig({ ...validS3Env, ENGINE: "" }).ENGINE).toBe("mongodb");
+    expect(loadConfig({ ...validS3Env, ENGINE: "   " }).ENGINE).toBe("mongodb");
   });
 
   it("trims and lowercases ENGINE", () => {
-    expect(loadConfig({ ...validR2Env, ENGINE: " MONGODB " }).ENGINE).toBe("mongodb");
+    expect(loadConfig({ ...validS3Env, ENGINE: " MONGODB " }).ENGINE).toBe("mongodb");
     expect(loadConfig({ ...validPostgresEnv, ENGINE: " Postgres " }).ENGINE).toBe("postgres");
   });
 
   it("rejects an unknown ENGINE with an error listing the valid engines", () => {
-    expect(() => loadConfig({ ...validR2Env, ENGINE: "mysql" })).toThrowError(
+    expect(() => loadConfig({ ...validS3Env, ENGINE: "mysql" })).toThrowError(
       /ENGINE: Unknown engine "mysql"\. Valid engines are: mongodb, postgres/,
     );
-    expect(() => loadConfig({ ...validR2Env, ENGINE: "mongodb,postgres" })).toThrowError(
+    expect(() => loadConfig({ ...validS3Env, ENGINE: "mongodb,postgres" })).toThrowError(
       /ENGINE: Unknown engine "mongodb,postgres"\. Valid engines are: mongodb, postgres/,
     );
   });
 
   it("requires MONGODB_URI if and only if mongodb is selected", () => {
-    const missingUri = { ...validR2Env };
+    const missingUri = { ...validS3Env };
     delete (missingUri as Record<string, string | undefined>).MONGODB_URI;
     expect(() => loadConfig(missingUri)).toThrowError(/MONGODB_URI: missing environment variable/);
 
-    expect(() => loadConfig({ ...validR2Env, MONGODB_URI: "" })).toThrowError(/MONGODB_URI must not be empty/);
+    expect(() => loadConfig({ ...validS3Env, MONGODB_URI: "" })).toThrowError(/MONGODB_URI must not be empty/);
 
     // Postgres selected: MONGODB_URI is not required and is ignored entirely.
     expect(() => loadConfig({ ...validPostgresEnv, MONGODB_URI: undefined })).not.toThrow();
@@ -165,14 +175,14 @@ describe("loadConfig engine validation matrix", () => {
   });
 
   it("requires POSTGRESQL_URI if and only if postgres is selected", () => {
-    const missingUri = { ...validR2Env, ENGINE: "postgres" };
+    const missingUri = { ...validS3Env, ENGINE: "postgres" };
     expect(() => loadConfig(missingUri)).toThrowError(/POSTGRESQL_URI: missing environment variable/);
 
     expect(() => loadConfig({ ...missingUri, POSTGRESQL_URI: "" })).toThrowError(/POSTGRESQL_URI must not be empty/);
 
     // MongoDB selected: POSTGRESQL_URI is not required and is ignored entirely.
-    expect(() => loadConfig(validR2Env)).not.toThrow();
-    expect(loadConfig({ ...validR2Env, POSTGRESQL_URI: "not a postgres uri" })).not.toHaveProperty("POSTGRESQL_URI");
+    expect(() => loadConfig(validS3Env)).not.toThrow();
+    expect(loadConfig({ ...validS3Env, POSTGRESQL_URI: "not a postgres uri" })).not.toHaveProperty("POSTGRESQL_URI");
   });
 
   it("accepts postgres:// and postgresql:// URIs and never rewrites them", () => {
@@ -213,7 +223,7 @@ describe("loadConfig engine validation matrix", () => {
   });
 
   it("returns only the selected engine's connection variable", () => {
-    const mongodbConfig = loadConfig(validR2Env);
+    const mongodbConfig = loadConfig(validS3Env);
     expect(mongodbConfig).toMatchObject({
       ENGINE: "mongodb",
       MONGODB_URI: "mongodb://localhost:27017/test",
@@ -230,14 +240,14 @@ describe("loadConfig engine validation matrix", () => {
     expect(postgresConfig).not.toHaveProperty("MONGODB_URI");
 
     const mongodbWithBlocklist = loadConfig({
-      ...validR2Env,
+      ...validS3Env,
       MONGODB_DB_BLOCKLIST: "scratch_*, *_dev",
     });
     expect((mongodbWithBlocklist as MongodbConfig).MONGODB_DB_BLOCKLIST).toEqual(["scratch_*", "*_dev"]);
 
     // DB_BLOCKLIST fallback for both engines
     const mongoWithCommonBlocklist = loadConfig({
-      ...validR2Env,
+      ...validS3Env,
       DB_BLOCKLIST: "common_junk_*",
     });
     expect((mongoWithCommonBlocklist as MongodbConfig).MONGODB_DB_BLOCKLIST).toEqual(["common_junk_*"]);
@@ -248,7 +258,7 @@ describe("loadConfig engine validation matrix", () => {
     });
     expect((pgWithCommonBlocklist as PostgresConfig).PG_DB_BLOCKLIST).toEqual(["common_junk_*"]);
 
-    // Empty string or whitespace in engine-specific variable must fall back to DB_BLOCKLIST (e.g. GitHub Actions unset vars)
+    // Empty string or whitespace in engine-specific variable must fall back to DB_BLOCKLIST
     const pgWithEmptySpecific = loadConfig({
       ...validPostgresEnv,
       PG_DB_BLOCKLIST: "",
@@ -257,7 +267,7 @@ describe("loadConfig engine validation matrix", () => {
     expect((pgWithEmptySpecific as PostgresConfig).PG_DB_BLOCKLIST).toEqual(["prisma_migrate_shadow_db_*", "*test*"]);
 
     const mongoWithWhitespaceSpecific = loadConfig({
-      ...validR2Env,
+      ...validS3Env,
       MONGODB_DB_BLOCKLIST: "   ",
       DB_BLOCKLIST: "common_junk_*",
     });
@@ -274,74 +284,81 @@ describe("loadConfig engine validation matrix", () => {
 });
 
 describe("loadConfig destination validation matrix", () => {
-  it("defaults unset or blank DESTINATIONS to r2", () => {
-    const configUnset = loadConfig(validR2Env);
-    expect(configUnset.DESTINATIONS).toEqual(["r2"]);
+  it("defaults unset or blank DESTINATIONS to s3", () => {
+    const configUnset = loadConfig(validS3Env);
+    expect(configUnset.DESTINATIONS).toEqual(["s3"]);
 
-    const configEmpty = loadConfig({ ...validR2Env, DESTINATIONS: "" });
-    expect(configEmpty.DESTINATIONS).toEqual(["r2"]);
+    const configEmpty = loadConfig({ ...validS3Env, DESTINATIONS: "" });
+    expect(configEmpty.DESTINATIONS).toEqual(["s3"]);
 
-    const configBlank = loadConfig({ ...validR2Env, DESTINATIONS: "   " });
-    expect(configBlank.DESTINATIONS).toEqual(["r2"]);
+    const configBlank = loadConfig({ ...validS3Env, DESTINATIONS: "   " });
+    expect(configBlank.DESTINATIONS).toEqual(["s3"]);
   });
 
   it("trims, lowercases, and ignores empty segments in DESTINATIONS", () => {
-    const config = loadConfig({ ...validR2Env, DESTINATIONS: " r2, " });
-    expect(config.DESTINATIONS).toEqual(["r2"]);
+    const configS3 = loadConfig({ ...validS3Env, DESTINATIONS: " s3, " });
+    expect(configS3.DESTINATIONS).toEqual(["s3"]);
 
-    const configBoth = loadConfig({
-      ...validR2Env,
+    const configS3Local = loadConfig({
+      ...validS3Env,
       ...validLocalEnv,
-      DESTINATIONS: " R2, , LOCAL, ",
+      DESTINATIONS: " S3, , LOCAL, ",
     });
-    expect(configBoth.DESTINATIONS).toEqual(["r2", "local"]);
+    expect(configS3Local.DESTINATIONS).toEqual(["s3", "local"]);
   });
 
   it("rejects an unknown destination in loadConfig with error listing valid values", () => {
-    expect(() => loadConfig({ ...validR2Env, DESTINATIONS: "s3" })).toThrowError(/Unknown destination "s3"\. Valid destinations are: r2, local/);
+    expect(() => loadConfig({ ...validS3Env, DESTINATIONS: "bad" })).toThrowError(
+      /DESTINATIONS: Unknown destination "bad"\. Valid destinations are: s3, local/,
+    );
+    expect(() => loadConfig({ ...validS3Env, DESTINATIONS: "r2" })).toThrowError(
+      /DESTINATIONS: Unknown destination "r2"\. Valid destinations are: s3, local/,
+    );
   });
 
-  it("rejects a duplicate destination entry in loadConfig", () => {
-    expect(() => loadConfig({ ...validR2Env, DESTINATIONS: "r2, r2" })).toThrowError(/Duplicate destination "r2"/);
+  it("rejects duplicate destination entries in loadConfig", () => {
+    expect(() => loadConfig({ ...validS3Env, DESTINATIONS: "s3, s3" })).toThrowError(/Duplicate destination "s3"/);
+    expect(() => loadConfig({ ...validS3Env, ...validLocalEnv, DESTINATIONS: "local, LOCAL" })).toThrowError(/Duplicate destination "local"/);
   });
 
-  it("validates when local is selected and R2 variables are missing", () => {
+  it("validates when local is selected and S3 variables are missing", () => {
     const config = loadConfig(validLocalEnv);
     expect(config.DESTINATIONS).toEqual(["local"]);
     expect(config.LOCAL_BACKUP_DIR).toBe("/var/backups/mongodb");
-    expect(config.R2_ENDPOINT).toBeUndefined();
-    expect(config.R2_ACCESS_KEY_ID).toBeUndefined();
-    expect(config.R2_SECRET_ACCESS_KEY).toBeUndefined();
-    expect(config.R2_BUCKET).toBeUndefined();
+    expect(config.S3_ENDPOINT).toBeUndefined();
+    expect(config.S3_ACCESS_KEY_ID).toBeUndefined();
+    expect(config.S3_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(config.S3_BUCKET).toBeUndefined();
+    expect(config.S3_FORCE_PATH_STYLE).toBeUndefined();
   });
 
-  it("fails validation when r2 is selected and R2 variables are missing", () => {
-    const envWithoutBucket = { ...validR2Env };
-    delete (envWithoutBucket as Record<string, string | undefined>).R2_BUCKET;
+  it("fails validation when s3 is selected and bucket is missing", () => {
+    const envWithoutBucket = { ...validS3Env };
+    delete (envWithoutBucket as Record<string, string | undefined>).S3_BUCKET;
 
-    expect(() => loadConfig(envWithoutBucket)).toThrowError(/R2_BUCKET: missing environment variable/);
+    expect(() => loadConfig(envWithoutBucket)).toThrowError(/S3_BUCKET: missing environment variable/);
   });
 
   it("ignores unselected destinations' variables entirely", () => {
-    // When local is selected, invalid R2 variables are ignored
-    const localWithBadR2 = {
+    // When local is selected, invalid S3 variables are ignored
+    const localWithBadS3 = {
       ...validLocalEnv,
-      R2_ENDPOINT: "not-a-valid-https-url",
-      R2_BUCKET: "",
-      R2_ACCESS_KEY_ID: "",
+      S3_ENDPOINT: "not-a-valid-https-url",
+      S3_BUCKET: "",
+      S3_ACCESS_KEY_ID: "",
     };
-    const configLocal = loadConfig(localWithBadR2);
+    const configLocal = loadConfig(localWithBadS3);
     expect(configLocal.DESTINATIONS).toEqual(["local"]);
-    expect(configLocal.R2_ENDPOINT).toBeUndefined();
+    expect(configLocal.S3_ENDPOINT).toBeUndefined();
 
-    // When r2 is selected, invalid LOCAL_BACKUP_DIR is ignored
-    const r2WithBadLocal = {
-      ...validR2Env,
+    // When s3 is selected, invalid LOCAL_BACKUP_DIR is ignored
+    const s3WithBadLocal = {
+      ...validS3Env,
       LOCAL_BACKUP_DIR: "",
     };
-    const configR2 = loadConfig(r2WithBadLocal);
-    expect(configR2.DESTINATIONS).toEqual(["r2"]);
-    expect(configR2.LOCAL_BACKUP_DIR).toBeUndefined();
+    const configS3 = loadConfig(s3WithBadLocal);
+    expect(configS3.DESTINATIONS).toEqual(["s3"]);
+    expect(configS3.LOCAL_BACKUP_DIR).toBeUndefined();
   });
 
   it("requires LOCAL_BACKUP_DIR if and only if local is selected", () => {
@@ -354,35 +371,252 @@ describe("loadConfig destination validation matrix", () => {
     const localEmptyDir = { ...validLocalEnv, LOCAL_BACKUP_DIR: "" };
     expect(() => loadConfig(localEmptyDir)).toThrowError(/LOCAL_BACKUP_DIR must not be empty/);
 
-    // Missing when r2 selected -> valid
-    expect(() => loadConfig(validR2Env)).not.toThrow();
+    // Missing when s3 selected -> valid
+    expect(() => loadConfig(validS3Env)).not.toThrow();
 
     // Both selected -> LOCAL_BACKUP_DIR is required
     const bothMissingDir = {
-      ...validR2Env,
-      DESTINATIONS: "r2,local",
+      ...validS3Env,
+      DESTINATIONS: "s3,local",
     };
     expect(() => loadConfig(bothMissingDir)).toThrowError(/LOCAL_BACKUP_DIR: missing environment variable/);
   });
 
   it("validates multi-destination config when all selected destinations are valid", () => {
     const config = loadConfig({
-      ...validR2Env,
+      ...validS3Env,
       ...validLocalEnv,
-      DESTINATIONS: "local, r2",
+      DESTINATIONS: "local, s3",
     });
 
-    expect(config.DESTINATIONS).toEqual(["local", "r2"]);
+    expect(config.DESTINATIONS).toEqual(["local", "s3"]);
     expect(config.LOCAL_BACKUP_DIR).toBe("/var/backups/mongodb");
-    expect(config.R2_BUCKET).toBe("mock-bucket");
-    expect(config.R2_ENDPOINT).toBe("https://example.r2.cloudflarestorage.com");
+    expect(config.S3_BUCKET).toBe("mock-s3-bucket");
+    expect(config.S3_ENDPOINT).toBe("https://s3.amazonaws.com");
   });
 
   it("surfaces configuration errors at config load", () => {
     expect(() =>
       loadConfig({
-        DESTINATIONS: "r2",
+        DESTINATIONS: "s3",
       }),
     ).toThrowError(/Invalid configuration:/);
+  });
+});
+
+describe("loadConfig S3 configuration matrix", () => {
+  it("parses canonical S3 configuration with static credentials", () => {
+    const config = loadConfig(validS3Env);
+    expect(config.S3_BUCKET).toBe("mock-s3-bucket");
+    expect(config.S3_ENDPOINT).toBe("https://s3.amazonaws.com");
+    expect(config.S3_REGION).toBe("us-east-1");
+    expect(config.S3_ACCESS_KEY_ID).toBe("mock-s3-access-key-id");
+    expect(config.S3_SECRET_ACCESS_KEY).toBe("mock-s3-secret-access-key");
+    expect(config.S3_FORCE_PATH_STYLE).toBe(false);
+
+    expect(config).not.toHaveProperty("R2_BUCKET");
+    expect(config).not.toHaveProperty("R2_ENDPOINT");
+    expect(config).not.toHaveProperty("R2_ACCESS_KEY_ID");
+    expect(config).not.toHaveProperty("R2_SECRET_ACCESS_KEY");
+  });
+
+  describe("bucket validation", () => {
+    it("fails when S3_BUCKET is not provided", () => {
+      const noBucket = { ...validS3Env };
+      delete (noBucket as Record<string, string | undefined>).S3_BUCKET;
+      expect(() => loadConfig(noBucket)).toThrowError(/S3_BUCKET: missing environment variable/);
+    });
+
+    it("fails when S3_BUCKET is an empty string", () => {
+      const emptyBucket = { ...validS3Env, S3_BUCKET: "" };
+      expect(() => loadConfig(emptyBucket)).toThrowError(/S3_BUCKET must not be empty/);
+    });
+
+    it("does not recognize legacy R2_BUCKET without S3_BUCKET", () => {
+      const legacyBucket = {
+        ...validBaseEnv,
+        R2_BUCKET: "my-r2-bucket",
+      };
+      expect(() => loadConfig(legacyBucket)).toThrowError(/S3_BUCKET: missing environment variable/);
+    });
+  });
+
+  describe("endpoint resolution", () => {
+    it("leaves endpoint undefined when S3_ENDPOINT is not supplied (native AWS)", () => {
+      const awsEnv = { ...validS3Env };
+      delete (awsEnv as Record<string, string | undefined>).S3_ENDPOINT;
+      const config = loadConfig(awsEnv);
+      expect(config.S3_ENDPOINT).toBeUndefined();
+    });
+
+    it("accepts valid https:// endpoint and strips trailing slashes", () => {
+      const config = loadConfig({
+        ...validS3Env,
+        S3_ENDPOINT: "https://custom-s3.example.com///",
+      });
+      expect(config.S3_ENDPOINT).toBe("https://custom-s3.example.com");
+    });
+
+    it("accepts valid http:// endpoint for local/MinIO development", () => {
+      const config = loadConfig({
+        ...validS3Env,
+        S3_ENDPOINT: "http://localhost:9000/",
+      });
+      expect(config.S3_ENDPOINT).toBe("http://localhost:9000");
+    });
+
+    it("rejects invalid URL for S3_ENDPOINT", () => {
+      expect(() =>
+        loadConfig({
+          ...validS3Env,
+          S3_ENDPOINT: "not-a-valid-url",
+        }),
+      ).toThrowError(/S3_ENDPOINT must be a valid URL/);
+    });
+
+    it("rejects non-http/https protocol for S3_ENDPOINT", () => {
+      expect(() =>
+        loadConfig({
+          ...validS3Env,
+          S3_ENDPOINT: "ftp://storage.internal/bucket",
+        }),
+      ).toThrowError(/S3_ENDPOINT must use http:\/\/ or https:\/\//);
+    });
+  });
+
+  describe("region resolution strategy", () => {
+    it("uses explicitly provided S3_REGION directly", () => {
+      const config = loadConfig({
+        ...validS3Env,
+        S3_REGION: "us-west-2",
+      });
+      expect(config.S3_REGION).toBe("us-west-2");
+    });
+
+    it("defaults to 'auto' when S3_REGION is unset and endpoint is a Cloudflare R2 endpoint", () => {
+      const config = loadConfig({
+        ...validBaseEnv,
+        S3_BUCKET: "my-bucket",
+        S3_ENDPOINT: "https://0123456789abcdef.r2.cloudflarestorage.com",
+        S3_ACCESS_KEY_ID: "key",
+        S3_SECRET_ACCESS_KEY: "secret",
+      });
+      expect(config.S3_REGION).toBe("auto");
+    });
+
+    it("leaves region undefined when S3_REGION is unset on native AWS S3 (no endpoint)", () => {
+      const awsEnv = {
+        ...validBaseEnv,
+        S3_BUCKET: "my-native-bucket",
+        S3_ACCESS_KEY_ID: "aws-key",
+        S3_SECRET_ACCESS_KEY: "aws-secret",
+      };
+      const config = loadConfig(awsEnv);
+      expect(config.S3_REGION).toBeUndefined();
+    });
+
+    it("leaves region undefined when S3_REGION is unset on custom non-R2 endpoint (e.g. MinIO)", () => {
+      const minioEnv = {
+        ...validBaseEnv,
+        S3_BUCKET: "minio-bucket",
+        S3_ENDPOINT: "http://localhost:9000",
+        S3_ACCESS_KEY_ID: "minioadmin",
+        S3_SECRET_ACCESS_KEY: "minioadmin",
+      };
+      const config = loadConfig(minioEnv);
+      expect(config.S3_REGION).toBeUndefined();
+    });
+  });
+
+  describe("credential boundary and ambient IAM/OIDC support", () => {
+    it("resolves strictly from S3_* prefix when both static credentials are provided", () => {
+      const config = loadConfig(validS3Env);
+      expect(config.S3_ACCESS_KEY_ID).toBe("mock-s3-access-key-id");
+      expect(config.S3_SECRET_ACCESS_KEY).toBe("mock-s3-secret-access-key");
+    });
+
+    it("enforces strict credential boundary: fails loudly when S3_ACCESS_KEY_ID is set without S3_SECRET_ACCESS_KEY", () => {
+      const partialS3 = {
+        ...validS3Env,
+        S3_ACCESS_KEY_ID: "s3-only-key",
+      };
+      delete (partialS3 as Record<string, string | undefined>).S3_SECRET_ACCESS_KEY;
+
+      expect(() => loadConfig(partialS3)).toThrowError(/S3_SECRET_ACCESS_KEY: missing environment variable/);
+    });
+
+    it("enforces strict credential boundary: fails loudly when S3_SECRET_ACCESS_KEY is set without S3_ACCESS_KEY_ID", () => {
+      const partialS3 = {
+        ...validS3Env,
+        S3_SECRET_ACCESS_KEY: "s3-only-secret",
+      };
+      delete (partialS3 as Record<string, string | undefined>).S3_ACCESS_KEY_ID;
+
+      expect(() => loadConfig(partialS3)).toThrowError(/S3_ACCESS_KEY_ID: missing environment variable/);
+    });
+
+    it("fails when S3_ACCESS_KEY_ID is provided and S3_SECRET_ACCESS_KEY is an empty string", () => {
+      expect(() =>
+        loadConfig({
+          ...validS3Env,
+          S3_ACCESS_KEY_ID: "key",
+          S3_SECRET_ACCESS_KEY: "",
+        }),
+      ).toThrowError(/S3_SECRET_ACCESS_KEY must not be empty/);
+    });
+
+    it("fails when S3_SECRET_ACCESS_KEY is provided and S3_ACCESS_KEY_ID is an empty string", () => {
+      expect(() =>
+        loadConfig({
+          ...validS3Env,
+          S3_ACCESS_KEY_ID: "",
+          S3_SECRET_ACCESS_KEY: "secret",
+        }),
+      ).toThrowError(/S3_ACCESS_KEY_ID must not be empty/);
+    });
+
+    it("supports ambient credentials: leaves credentials undefined when neither S3_ACCESS_KEY_ID nor S3_SECRET_ACCESS_KEY are set", () => {
+      const ambientEnv = {
+        ...validBaseEnv,
+        S3_BUCKET: "ambient-iam-bucket",
+      };
+      const config = loadConfig(ambientEnv);
+      expect(config.S3_ACCESS_KEY_ID).toBeUndefined();
+      expect(config.S3_SECRET_ACCESS_KEY).toBeUndefined();
+    });
+  });
+
+  describe("S3_FORCE_PATH_STYLE parsing", () => {
+    it("defaults to false when unset or blank whitespace", () => {
+      const configDefault = loadConfig(validS3Env);
+      expect(configDefault.S3_FORCE_PATH_STYLE).toBe(false);
+
+      const configEmpty = loadConfig({ ...validS3Env, S3_FORCE_PATH_STYLE: "" });
+      expect(configEmpty.S3_FORCE_PATH_STYLE).toBe(false);
+
+      const configBlank = loadConfig({ ...validS3Env, S3_FORCE_PATH_STYLE: "   " });
+      expect(configBlank.S3_FORCE_PATH_STYLE).toBe(false);
+    });
+
+    it("parses truthy values as true (true, TRUE, 1)", () => {
+      expect(loadConfig({ ...validS3Env, S3_FORCE_PATH_STYLE: "true" }).S3_FORCE_PATH_STYLE).toBe(true);
+      expect(loadConfig({ ...validS3Env, S3_FORCE_PATH_STYLE: "TRUE" }).S3_FORCE_PATH_STYLE).toBe(true);
+      expect(loadConfig({ ...validS3Env, S3_FORCE_PATH_STYLE: "1" }).S3_FORCE_PATH_STYLE).toBe(true);
+    });
+
+    it("parses falsy values as false (false, FALSE, 0)", () => {
+      expect(loadConfig({ ...validS3Env, S3_FORCE_PATH_STYLE: "false" }).S3_FORCE_PATH_STYLE).toBe(false);
+      expect(loadConfig({ ...validS3Env, S3_FORCE_PATH_STYLE: "FALSE" }).S3_FORCE_PATH_STYLE).toBe(false);
+      expect(loadConfig({ ...validS3Env, S3_FORCE_PATH_STYLE: "0" }).S3_FORCE_PATH_STYLE).toBe(false);
+    });
+
+    it("rejects non-boolean strings with a clear error", () => {
+      expect(() =>
+        loadConfig({
+          ...validS3Env,
+          S3_FORCE_PATH_STYLE: "not-a-boolean",
+        }),
+      ).toThrowError(/S3_FORCE_PATH_STYLE must be a boolean \(true or false\)/);
+    });
   });
 });

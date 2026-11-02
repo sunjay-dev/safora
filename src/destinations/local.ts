@@ -11,7 +11,7 @@ export interface LocalDestinationOptions {
   copyFile?: (sourcePath: string, destinationPath: string) => Promise<void>;
 }
 
-/** The local-folder destination: the same mirrored layout as R2, written atomically inside one volume. */
+/** The local-folder destination: the same mirrored layout as S3, written atomically inside one volume. */
 export function createLocalDestination(config: Config, options: LocalDestinationOptions = {}): Destination {
   const configuredDir = config.LOCAL_BACKUP_DIR;
   if (!configuredDir) {
