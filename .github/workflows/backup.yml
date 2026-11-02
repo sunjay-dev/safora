@@ -54,7 +54,7 @@ jobs:
           fi
 
   backup:
-    name: Dump, encrypt, upload to R2
+    name: Dump, encrypt, upload to S3
     needs: check-mongodb
     if: needs.check-mongodb.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
@@ -94,11 +94,13 @@ jobs:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           MONGODB_DB_BLOCKLIST: ${{ vars.MONGODB_DB_BLOCKLIST || secrets.MONGODB_DB_BLOCKLIST }}
           DB_BLOCKLIST: ${{ vars.DB_BLOCKLIST || secrets.DB_BLOCKLIST }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT || secrets.R2_ENDPOINT }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID || secrets.R2_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY || secrets.R2_SECRET_ACCESS_KEY }}
           AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          S3_BUCKET: ${{ vars.S3_BUCKET || vars.R2_BUCKET }}
+          S3_REGION: ${{ vars.S3_REGION }}
+          S3_FORCE_PATH_STYLE: ${{ vars.S3_FORCE_PATH_STYLE }}
           DESTINATIONS: ${{ vars.DESTINATIONS }}
           RETENTION_DAYS: ${{ vars.RETENTION_DAYS }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
@@ -109,7 +111,7 @@ jobs:
         run: node dist/main.js
 
   postgres:
-    name: "PostgreSQL: Dump, encrypt, upload to R2"
+    name: "PostgreSQL: Dump, encrypt, upload to S3"
     needs: check-postgres
     if: needs.check-postgres.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
@@ -159,11 +161,13 @@ jobs:
           POSTGRESQL_URI: ${{ secrets.POSTGRESQL_URI }}
           PG_DB_BLOCKLIST: ${{ vars.PG_DB_BLOCKLIST || secrets.PG_DB_BLOCKLIST }}
           DB_BLOCKLIST: ${{ vars.DB_BLOCKLIST || secrets.DB_BLOCKLIST }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT || secrets.R2_ENDPOINT }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID || secrets.R2_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY || secrets.R2_SECRET_ACCESS_KEY }}
           AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          S3_BUCKET: ${{ vars.S3_BUCKET || vars.R2_BUCKET }}
+          S3_REGION: ${{ vars.S3_REGION }}
+          S3_FORCE_PATH_STYLE: ${{ vars.S3_FORCE_PATH_STYLE }}
           DESTINATIONS: ${{ vars.DESTINATIONS }}
           RETENTION_DAYS: ${{ vars.RETENTION_DAYS }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}

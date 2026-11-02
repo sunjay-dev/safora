@@ -1,8 +1,5 @@
 import { z } from "zod";
 
-export const ACCEPTED_DESTINATIONS = ["s3", "r2", "local"] as const;
-export type AcceptedDestination = (typeof ACCEPTED_DESTINATIONS)[number];
-
 export const VALID_DESTINATIONS = ["s3", "local"] as const;
 export type DestinationId = (typeof VALID_DESTINATIONS)[number];
 
@@ -116,73 +113,23 @@ function pickBlocklist(specific?: string, fallback?: string): string | undefined
   return undefined;
 }
 
-export const R2EnvSchema = z.object({
-  R2_ENDPOINT: z
-    .string()
-    .trim()
-    .min(1, "R2_ENDPOINT must not be empty")
-    .startsWith("https://", "R2_ENDPOINT must use https://")
-    .url("R2_ENDPOINT must be a valid URL")
-    .transform((raw) => raw.replace(/\/+$/, "")),
-  R2_ACCESS_KEY_ID: requiredString("R2_ACCESS_KEY_ID"),
-  R2_SECRET_ACCESS_KEY: requiredString("R2_SECRET_ACCESS_KEY"),
-  R2_BUCKET: requiredString("R2_BUCKET"),
-});
-
 export const LocalEnvSchema = z.object({
   LOCAL_BACKUP_DIR: requiredString("LOCAL_BACKUP_DIR"),
 });
 
 export const S3EnvSchema = z
   .object({
-    S3_BUCKET: z.string().optional(),
-    R2_BUCKET: z.string().optional(),
+    S3_BUCKET: requiredString("S3_BUCKET"),
     S3_ENDPOINT: z.string().optional(),
-    R2_ENDPOINT: z.string().optional(),
     S3_REGION: z.string().optional(),
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
-    R2_ACCESS_KEY_ID: z.string().optional(),
-    R2_SECRET_ACCESS_KEY: z.string().optional(),
     S3_FORCE_PATH_STYLE: z.string().optional(),
   })
   .superRefine((env, ctx) => {
-    // 1. S3_BUCKET / R2_BUCKET
-    const s3BucketRaw = env.S3_BUCKET;
-    const r2BucketRaw = env.R2_BUCKET;
-    const s3Bucket = s3BucketRaw?.trim();
-    const r2Bucket = r2BucketRaw?.trim();
-
-    const hasS3Bucket = s3Bucket !== undefined && s3Bucket !== "";
-    const hasR2Bucket = r2Bucket !== undefined && r2Bucket !== "";
-
-    if (!hasS3Bucket && !hasR2Bucket) {
-      if (s3BucketRaw !== undefined && s3Bucket === "") {
-        ctx.addIssue({
-          code: "custom",
-          path: ["S3_BUCKET"],
-          message: "S3_BUCKET must not be empty",
-        });
-      } else if (s3BucketRaw === undefined && r2BucketRaw !== undefined && r2Bucket === "") {
-        ctx.addIssue({
-          code: "custom",
-          path: ["R2_BUCKET"],
-          message: "R2_BUCKET must not be empty",
-        });
-      } else {
-        ctx.addIssue({
-          code: "custom",
-          path: ["S3_BUCKET"],
-          message: "S3_BUCKET must not be empty",
-        });
-      }
-    }
-
-    // 2. S3_ENDPOINT / R2_ENDPOINT
+    // 1. S3_ENDPOINT
     const s3EndpointRaw = env.S3_ENDPOINT;
-    const r2EndpointRaw = env.R2_ENDPOINT;
     const s3Endpoint = s3EndpointRaw?.trim();
-    const r2Endpoint = r2EndpointRaw?.trim();
 
     if (s3Endpoint !== undefined && s3Endpoint !== "") {
       try {
@@ -201,26 +148,9 @@ export const S3EnvSchema = z
           message: "S3_ENDPOINT must be a valid URL",
         });
       }
-    } else if (r2Endpoint !== undefined && r2Endpoint !== "") {
-      try {
-        const url = new URL(r2Endpoint);
-        if (url.protocol !== "http:" && url.protocol !== "https:") {
-          ctx.addIssue({
-            code: "custom",
-            path: ["R2_ENDPOINT"],
-            message: "R2_ENDPOINT must use http:// or https://",
-          });
-        }
-      } catch {
-        ctx.addIssue({
-          code: "custom",
-          path: ["R2_ENDPOINT"],
-          message: "R2_ENDPOINT must be a valid URL",
-        });
-      }
     }
 
-    // 3. Credentials boundary and fallback
+    // 2. Credentials boundary: if either is set, both must be set
     const s3KeyRaw = env.S3_ACCESS_KEY_ID;
     const s3SecretRaw = env.S3_SECRET_ACCESS_KEY;
     const s3KeyTrimmed = s3KeyRaw?.trim();
@@ -232,7 +162,6 @@ export const S3EnvSchema = z
     const hasS3Secret = Boolean(s3SecretTrimmed && s3SecretTrimmed.length > 0);
 
     if (hasS3Key || hasS3Secret || (s3KeyDefined && s3KeyTrimmed === "") || (s3SecretDefined && s3SecretTrimmed === "")) {
-      // S3 prefix active: both required, fails loudly if only one is set
       if (!hasS3Key) {
         ctx.addIssue({
           code: "custom",
@@ -247,37 +176,9 @@ export const S3EnvSchema = z
           message: !s3SecretDefined ? "missing environment variable" : "S3_SECRET_ACCESS_KEY must not be empty",
         });
       }
-    } else {
-      // Check R2 credentials fallback
-      const r2KeyRaw = env.R2_ACCESS_KEY_ID;
-      const r2SecretRaw = env.R2_SECRET_ACCESS_KEY;
-      const r2KeyTrimmed = r2KeyRaw?.trim();
-      const r2SecretTrimmed = r2SecretRaw?.trim();
-
-      const r2KeyDefined = r2KeyRaw !== undefined;
-      const r2SecretDefined = r2SecretRaw !== undefined;
-      const hasR2Key = Boolean(r2KeyTrimmed && r2KeyTrimmed.length > 0);
-      const hasR2Secret = Boolean(r2SecretTrimmed && r2SecretTrimmed.length > 0);
-
-      if (hasR2Key || hasR2Secret || (r2KeyDefined && r2KeyTrimmed === "") || (r2SecretDefined && r2SecretTrimmed === "")) {
-        if (!hasR2Key) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["R2_ACCESS_KEY_ID"],
-            message: !r2KeyDefined ? "missing environment variable" : "R2_ACCESS_KEY_ID must not be empty",
-          });
-        }
-        if (!hasR2Secret) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["R2_SECRET_ACCESS_KEY"],
-            message: !r2SecretDefined ? "missing environment variable" : "R2_SECRET_ACCESS_KEY must not be empty",
-          });
-        }
-      }
     }
 
-    // 4. S3_FORCE_PATH_STYLE
+    // 3. S3_FORCE_PATH_STYLE
     const forcePathStyleRaw = env.S3_FORCE_PATH_STYLE?.trim();
     if (forcePathStyleRaw !== undefined && forcePathStyleRaw !== "") {
       const lower = forcePathStyleRaw.toLowerCase();
@@ -292,19 +193,11 @@ export const S3EnvSchema = z
   })
   .transform((env) => {
     // 1. Bucket resolution
-    const s3Bucket = env.S3_BUCKET?.trim();
-    const r2Bucket = env.R2_BUCKET?.trim();
-    const resolvedBucket = s3Bucket && s3Bucket !== "" ? s3Bucket : (r2Bucket && r2Bucket !== "" ? r2Bucket : undefined)!;
+    const resolvedBucket = env.S3_BUCKET.trim();
 
     // 2. Endpoint resolution
     const s3Endpoint = env.S3_ENDPOINT?.trim();
-    const r2Endpoint = env.R2_ENDPOINT?.trim();
-    let resolvedEndpoint: string | undefined;
-    if (s3Endpoint && s3Endpoint !== "") {
-      resolvedEndpoint = s3Endpoint.replace(/\/+$/, "");
-    } else if (r2Endpoint && r2Endpoint !== "") {
-      resolvedEndpoint = r2Endpoint.replace(/\/+$/, "");
-    }
+    const resolvedEndpoint = s3Endpoint && s3Endpoint !== "" ? s3Endpoint.replace(/\/+$/, "") : undefined;
 
     // 3. Region resolution
     const s3Region = env.S3_REGION?.trim();
@@ -312,13 +205,6 @@ export const S3EnvSchema = z
     if (s3Region && s3Region !== "") {
       resolvedRegion = s3Region;
     } else {
-      const hasLegacyR2 = Boolean(
-        (env.R2_BUCKET && env.R2_BUCKET.trim() !== "") ||
-        (env.R2_ENDPOINT && env.R2_ENDPOINT.trim() !== "") ||
-        (env.R2_ACCESS_KEY_ID && env.R2_ACCESS_KEY_ID.trim() !== "") ||
-        (env.R2_SECRET_ACCESS_KEY && env.R2_SECRET_ACCESS_KEY.trim() !== ""),
-      );
-
       let isR2Endpoint = false;
       if (resolvedEndpoint) {
         try {
@@ -330,30 +216,14 @@ export const S3EnvSchema = z
           // ignore
         }
       }
-
-      if (hasLegacyR2 || isR2Endpoint) {
-        resolvedRegion = "auto";
-      } else {
-        resolvedRegion = undefined;
-      }
+      resolvedRegion = isR2Endpoint ? "auto" : undefined;
     }
 
     // 4. Credentials resolution
     const s3KeyTrimmed = env.S3_ACCESS_KEY_ID?.trim();
     const s3SecretTrimmed = env.S3_SECRET_ACCESS_KEY?.trim();
-    const r2KeyTrimmed = env.R2_ACCESS_KEY_ID?.trim();
-    const r2SecretTrimmed = env.R2_SECRET_ACCESS_KEY?.trim();
-
-    let resolvedAccessKeyId: string | undefined;
-    let resolvedSecretAccessKey: string | undefined;
-
-    if (s3KeyTrimmed && s3KeyTrimmed !== "" && s3SecretTrimmed && s3SecretTrimmed !== "") {
-      resolvedAccessKeyId = s3KeyTrimmed;
-      resolvedSecretAccessKey = s3SecretTrimmed;
-    } else if (r2KeyTrimmed && r2KeyTrimmed !== "" && r2SecretTrimmed && r2SecretTrimmed !== "") {
-      resolvedAccessKeyId = r2KeyTrimmed;
-      resolvedSecretAccessKey = r2SecretTrimmed;
-    }
+    const resolvedAccessKeyId = s3KeyTrimmed && s3KeyTrimmed !== "" ? s3KeyTrimmed : undefined;
+    const resolvedSecretAccessKey = s3SecretTrimmed && s3SecretTrimmed !== "" ? s3SecretTrimmed : undefined;
 
     // 5. ForcePathStyle resolution
     let resolvedForcePathStyle = false;
@@ -372,11 +242,6 @@ export const S3EnvSchema = z
       S3_ACCESS_KEY_ID: resolvedAccessKeyId,
       S3_SECRET_ACCESS_KEY: resolvedSecretAccessKey,
       S3_FORCE_PATH_STYLE: resolvedForcePathStyle,
-      // Backwards compatibility aliases
-      R2_BUCKET: resolvedBucket,
-      R2_ENDPOINT: resolvedEndpoint,
-      R2_ACCESS_KEY_ID: resolvedAccessKeyId,
-      R2_SECRET_ACCESS_KEY: resolvedSecretAccessKey,
     };
   });
 
@@ -395,10 +260,6 @@ export interface BaseConfig {
   S3_ACCESS_KEY_ID?: string;
   S3_SECRET_ACCESS_KEY?: string;
   S3_FORCE_PATH_STYLE?: boolean;
-  R2_ENDPOINT?: string;
-  R2_ACCESS_KEY_ID?: string;
-  R2_SECRET_ACCESS_KEY?: string;
-  R2_BUCKET?: string;
   LOCAL_BACKUP_DIR?: string;
 }
 
@@ -436,18 +297,16 @@ export function parseDestinations(raw?: string): DestinationId[] {
   const destinations: DestinationId[] = [];
 
   for (const segment of segments) {
-    if (!ACCEPTED_DESTINATIONS.includes(segment as AcceptedDestination)) {
-      throw new Error(`Unknown destination "${segment}". Valid destinations are: ${ACCEPTED_DESTINATIONS.join(", ")}`);
+    if (!VALID_DESTINATIONS.includes(segment as DestinationId)) {
+      throw new Error(`Unknown destination "${segment}". Valid destinations are: ${VALID_DESTINATIONS.join(", ")}`);
     }
 
-    const normalized: DestinationId = segment === "r2" ? "s3" : (segment as DestinationId);
-
-    if (seen.has(normalized)) {
+    if (seen.has(segment as DestinationId)) {
       throw new Error(`Duplicate destination "${segment}"`);
     }
 
-    seen.add(normalized);
-    destinations.push(normalized);
+    seen.add(segment as DestinationId);
+    destinations.push(segment as DestinationId);
   }
 
   return destinations;

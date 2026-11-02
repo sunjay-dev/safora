@@ -8,7 +8,7 @@ export interface DeliveryResult {
 
 /** A place a run delivers its archive; the one seam every destination implements. */
 export interface Destination {
-  /** Stable identifier used in configuration, logs, and summaries, e.g. "r2". */
+  /** Stable identifier used in configuration, logs, and summaries, e.g. "s3". */
   readonly id: string;
 
   /** Write the archive at the given object key, verify it, and report what landed. */

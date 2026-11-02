@@ -11,7 +11,7 @@ export async function pruneExpiredBackups(config: Config, client: S3Client, curr
   do {
     const page = await client.send(
       new ListObjectsV2Command({
-        Bucket: config.R2_BUCKET,
+        Bucket: config.S3_BUCKET,
         Prefix: config.BACKUP_PREFIX,
         ContinuationToken: continuationToken,
       }),
@@ -29,7 +29,7 @@ export async function pruneExpiredBackups(config: Config, client: S3Client, curr
   for (let i = 0; i < toDelete.length; i += 1000) {
     await client.send(
       new DeleteObjectsCommand({
-        Bucket: config.R2_BUCKET,
+        Bucket: config.S3_BUCKET,
         Delete: {
           Objects: toDelete.slice(i, i + 1000).map((key) => ({ Key: key })),
           Quiet: true,

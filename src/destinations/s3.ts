@@ -4,15 +4,15 @@ import { pruneExpiredBackups } from "../storage/retention.js";
 import { uploadAndVerify } from "../storage/upload.js";
 import type { DeliveryResult, Destination } from "./destination.js";
 
-/** The R2 bucket destination: the original delivery-and-retention pipeline behind the contract. */
-export function createR2Destination(config: Config): Destination {
+/** The S3/R2 bucket destination: delivery-and-retention pipeline behind the contract. */
+export function createS3Destination(config: Config): Destination {
   const client = buildS3Client(config);
 
   return {
-    id: "r2",
+    id: "s3",
     async deliver(archivePath, objectKey): Promise<DeliveryResult> {
       const { bytes, sha256 } = await uploadAndVerify(config, client, archivePath, objectKey);
-      return { location: `s3://${config.R2_BUCKET}/${objectKey}`, bytes, sha256 };
+      return { location: `s3://${config.S3_BUCKET}/${objectKey}`, bytes, sha256 };
     },
     prune(currentObjectKey) {
       return pruneExpiredBackups(config, client, currentObjectKey);
