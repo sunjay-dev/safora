@@ -1,44 +1,22 @@
 import { execFile } from "node:child_process";
-import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
-import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
-import { Decrypter, generateIdentity, identityToRecipient } from "age-encryption";
+import { DeleteObjectsCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { generateIdentity, identityToRecipient } from "age-encryption";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadConfig } from "../../src/config/env.config.js";
 import { buildDatabaseUri, splitPostgresUri, withPgpassFile } from "../../src/lib/postgres.js";
-import { buildS3Client } from "../../src/storage/client.js";
+import { downloadAndDecryptArchive } from "../helpers/archive-helper.js";
 import { runCli } from "../helpers/cli-runner.js";
+import { getTestS3Client } from "../helpers/s3-test-config.js";
 
 const execFileAsync = promisify(execFile);
 
 describe("PostgreSQL multi-database discovery, blocklist filtering, and round-trip restore integration test", () => {
-  const endpoint = process.env.S3_ENDPOINT ?? "http://127.0.0.1:9000";
-  const bucket = process.env.S3_BUCKET ?? "test-bucket";
-  const region = process.env.S3_REGION ?? "us-east-1";
-  const accessKeyId = process.env.S3_ACCESS_KEY_ID ?? "minioadmin";
-  const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY ?? "minioadmin";
-  const forcePathStyle = process.env.S3_FORCE_PATH_STYLE ?? "true";
+  const { s3Client, params: s3Params } = getTestS3Client();
   const postgresUri = process.env.POSTGRESQL_URI ?? "postgresql://postgres:postgres@127.0.0.1:5433/postgres";
 
-  const s3Config = loadConfig({
-    DESTINATIONS: "s3",
-    ENGINE: "postgres",
-    POSTGRESQL_URI: postgresUri,
-    AGE_RECIPIENT: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
-    S3_ENDPOINT: endpoint,
-    S3_BUCKET: bucket,
-    S3_REGION: region,
-    S3_ACCESS_KEY_ID: accessKeyId,
-    S3_SECRET_ACCESS_KEY: secretAccessKey,
-    S3_FORCE_PATH_STYLE: forcePathStyle,
-  });
-
-  const s3Client = buildS3Client(s3Config);
   let tempDir: string;
   const createdS3Keys: string[] = [];
 
@@ -86,7 +64,7 @@ describe("PostgreSQL multi-database discovery, blocklist filtering, and round-tr
       await s3Client
         .send(
           new DeleteObjectsCommand({
-            Bucket: bucket,
+            Bucket: s3Params.bucket,
             Delete: { Objects: createdS3Keys.map((Key) => ({ Key })) },
           }),
         )
@@ -108,12 +86,12 @@ describe("PostgreSQL multi-database discovery, blocklist filtering, and round-tr
         PG_DB_BLOCKLIST: "analytics_staging",
         DESTINATIONS: "s3",
         AGE_RECIPIENT: ageRecipient,
-        S3_ENDPOINT: endpoint,
-        S3_BUCKET: bucket,
-        S3_REGION: region,
-        S3_ACCESS_KEY_ID: accessKeyId,
-        S3_SECRET_ACCESS_KEY: secretAccessKey,
-        S3_FORCE_PATH_STYLE: forcePathStyle,
+        S3_ENDPOINT: s3Params.endpoint,
+        S3_BUCKET: s3Params.bucket,
+        S3_REGION: s3Params.region,
+        S3_ACCESS_KEY_ID: s3Params.accessKeyId,
+        S3_SECRET_ACCESS_KEY: s3Params.secretAccessKey,
+        S3_FORCE_PATH_STYLE: s3Params.forcePathStyle,
         BACKUP_PREFIX: backupPrefix,
         RETENTION_DAYS: "14",
       },
@@ -138,7 +116,7 @@ describe("PostgreSQL multi-database discovery, blocklist filtering, and round-tr
     // 4. Validate delivered objects in S3
     const listRes = await s3Client.send(
       new ListObjectsV2Command({
-        Bucket: bucket,
+        Bucket: s3Params.bucket,
         Prefix: backupPrefix,
       }),
     );
@@ -155,39 +133,39 @@ describe("PostgreSQL multi-database discovery, blocklist filtering, and round-tr
     expect(tenantBKey).toBeDefined();
     expect(analyticsKey).toBeUndefined();
 
-    // 5. Download and decrypt archives using age test key
-    async function downloadAndDecrypt(key: string, baseName: string): Promise<string> {
-      const encryptedPath = join(tempDir, `${baseName}.dump.age`);
-      const decryptedPath = join(tempDir, `${baseName}.dump`);
+    // 5. Download and decrypt archives using age test key to plain dumps
+    const tenantADump = await downloadAndDecryptArchive({
+      s3Client,
+      bucket: s3Params.bucket,
+      key: tenantAKey!,
+      targetDir: tempDir,
+      encryptedFileName: "tenant_a.dump.age",
+      decryptedFileName: "tenant_a.dump",
+      ageIdentity,
+    });
 
-      const getRes = await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-      const encryptedStream = getRes.Body as Readable;
-      await pipeline(encryptedStream, createWriteStream(encryptedPath));
-
-      const decrypter = new Decrypter();
-      decrypter.addIdentity(ageIdentity);
-      const inputStream = Readable.toWeb(createReadStream(encryptedPath)) as ReadableStream<Uint8Array>;
-      const decryptedStream = await decrypter.decrypt(inputStream);
-      await pipeline(decryptedStream, createWriteStream(decryptedPath));
-
-      return decryptedPath;
-    }
-
-    const tenantADecrypted = await downloadAndDecrypt(tenantAKey!, "tenant_a");
-    const tenantBDecrypted = await downloadAndDecrypt(tenantBKey!, "tenant_b");
+    const tenantBDump = await downloadAndDecryptArchive({
+      s3Client,
+      bucket: s3Params.bucket,
+      key: tenantBKey!,
+      targetDir: tempDir,
+      encryptedFileName: "tenant_b.dump.age",
+      decryptedFileName: "tenant_b.dump",
+      ageIdentity,
+    });
 
     // 6. Create target restore databases
     await executePsql("postgres", "CREATE DATABASE tenant_a_restored;");
     await executePsql("postgres", "CREATE DATABASE tenant_b_restored;");
 
-    // 7. Restore unencrypted archives using pg_restore
+    // 7. Restore unencrypted dumps using pg_restore
     await withPgpassFile(tempDir, pgpassEntry, async (pgpassPath) => {
       const tenantARestoredUri = buildDatabaseUri(strippedUri, "tenant_a_restored");
       const tenantBRestoredUri = buildDatabaseUri(strippedUri, "tenant_b_restored");
       const env = pgpassPath ? { ...process.env, PGPASSFILE: pgpassPath } : process.env;
 
-      await execFileAsync("pg_restore", ["--dbname", tenantARestoredUri, tenantADecrypted], { env });
-      await execFileAsync("pg_restore", ["--dbname", tenantBRestoredUri, tenantBDecrypted], { env });
+      await execFileAsync("pg_restore", ["--dbname", tenantARestoredUri, tenantADump], { env });
+      await execFileAsync("pg_restore", ["--dbname", tenantBRestoredUri, tenantBDump], { env });
     });
 
     // 8. Verify 100% table and row parity between source and restored data

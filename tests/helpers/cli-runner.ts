@@ -12,7 +12,7 @@ export interface CliLogEntry {
   [key: string]: unknown;
 }
 
-export interface CliExecutionResult {
+export interface CliRunResult {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   stdout: string;
@@ -21,6 +21,8 @@ export interface CliExecutionResult {
   logs: CliLogEntry[];
   findLogs: (predicateOrMsg: string | ((entry: CliLogEntry) => boolean)) => CliLogEntry[];
 }
+
+export type CliExecutionResult = CliRunResult;
 
 export interface CliRunOptions {
   env?: Record<string, string | undefined>;
@@ -47,9 +49,9 @@ export async function buildApp(cwd = PROJECT_ROOT): Promise<void> {
 }
 
 /**
- * Executes `node dist/main.js` as an un-mocked child process with configured environment variables.
+ * Runs `node dist/main.js` as an un-mocked child process with configured environment variables.
  */
-export async function runCli(options: CliRunOptions = {}): Promise<CliExecutionResult> {
+export async function runCli(options: CliRunOptions = {}): Promise<CliRunResult> {
   const cwd = options.cwd ?? PROJECT_ROOT;
   const timeoutMs = options.timeoutMs ?? 30_000;
   const shouldBuild = options.ensureBuild ?? !existsSync(MAIN_JS_PATH);

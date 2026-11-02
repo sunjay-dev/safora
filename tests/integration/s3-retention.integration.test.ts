@@ -9,33 +9,13 @@ import {
   type S3Client,
 } from "@aws-sdk/client-s3";
 import { beforeAll, describe, expect, it } from "vitest";
-import { loadConfig } from "../../src/config/env.config.js";
 import { createS3Destination } from "../../src/destinations/s3.js";
-import { buildS3Client } from "../../src/storage/client.js";
+import { getTestS3Client } from "../helpers/s3-test-config.js";
 
 describe("S3 retention pruning integration tests against live MinIO", () => {
-  const endpoint = process.env.S3_ENDPOINT ?? "http://127.0.0.1:9000";
-  const bucket = process.env.S3_BUCKET ?? "test-bucket";
-  const region = process.env.S3_REGION ?? "us-east-1";
-  const accessKeyId = process.env.S3_ACCESS_KEY_ID ?? "minioadmin";
-  const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY ?? "minioadmin";
-  const forcePathStyle = process.env.S3_FORCE_PATH_STYLE ?? "true";
-
-  const testConfig = loadConfig({
-    DESTINATIONS: "s3",
-    ENGINE: "postgres",
-    POSTGRESQL_URI: "postgresql://postgres:postgres@localhost:5433/postgres",
-    AGE_RECIPIENT: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
-    RETENTION_DAYS: "14",
-    S3_ENDPOINT: endpoint,
-    S3_BUCKET: bucket,
-    S3_REGION: region,
-    S3_ACCESS_KEY_ID: accessKeyId,
-    S3_SECRET_ACCESS_KEY: secretAccessKey,
-    S3_FORCE_PATH_STYLE: forcePathStyle,
-  });
-
-  const realClient = buildS3Client(testConfig);
+  const { s3Client: realClient, params: s3Params, testConfig: baseConfig } = getTestS3Client();
+  const bucket = s3Params.bucket;
+  const testConfig = { ...baseConfig, RETENTION_DAYS: 14 };
 
   const runId = Date.now();
   const testPrefix = `backups/retention-test-${runId}/`;
