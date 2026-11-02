@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig, type Config } from "../config/env.config.js";
 import { sha256File } from "../lib/hash.js";
 import { deliverArchive } from "./deliver.js";
-import { createR2Destination } from "./r2.js";
 import { createS3Destination } from "./s3.js";
 
 const ARCHIVE_CONTENT = "s3-archive-payload\n";
@@ -86,13 +85,6 @@ describe("createS3Destination", () => {
     const destination = createS3Destination(config, { client });
     const pruned = await destination.prune(objectKey);
     expect(pruned).toEqual([]);
-  });
-
-  it("re-exports createR2Destination as a backward-compatible adapter", () => {
-    const destination = createR2Destination(config);
-    expect(destination.id).toBe("s3");
-    expect(typeof destination.deliver).toBe("function");
-    expect(typeof destination.prune).toBe("function");
   });
 
   it("integrates with deliverArchive to record successful and failed outcomes", async () => {
