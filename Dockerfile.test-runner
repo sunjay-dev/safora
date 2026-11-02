@@ -1,0 +1,48 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MDBTOOLS_VERSION=100.15.0
+ENV PG_MAJOR=17
+ENV PATH="/usr/lib/postgresql/17/bin:${PATH}"
+
+# Install base dependencies and tools
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    age \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g pnpm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install pinned MongoDB Database Tools 100.15.0
+RUN set -eu; \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "${ARCH}" in \
+      amd64) MDB_ARCH="x86_64" ;; \
+      arm64) MDB_ARCH="arm64" ;; \
+      *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -sfL -o /tmp/mongodb-database-tools.deb \
+      "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-${MDB_ARCH}-${MDBTOOLS_VERSION}.deb" \
+    && apt-get update \
+    && apt-get install -y /tmp/mongodb-database-tools.deb \
+    && rm -f /tmp/mongodb-database-tools.deb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install PostgreSQL 17 client utilities
+RUN install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y postgresql-client-${PG_MAJOR} \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+CMD ["pnpm", "test:integration"]

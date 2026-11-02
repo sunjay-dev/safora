@@ -11,6 +11,7 @@ import { buildS3Client } from "../../src/storage/client.js";
 describe("S3 destination integration tests against live MinIO", () => {
   const endpoint = process.env.S3_ENDPOINT ?? "http://127.0.0.1:9000";
   const bucket = process.env.S3_BUCKET ?? "test-bucket";
+  const region = process.env.S3_REGION ?? "us-east-1";
   const accessKeyId = process.env.S3_ACCESS_KEY_ID ?? "minioadmin";
   const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY ?? "minioadmin";
   const forcePathStyle = process.env.S3_FORCE_PATH_STYLE ?? "true";
@@ -22,6 +23,7 @@ describe("S3 destination integration tests against live MinIO", () => {
     AGE_RECIPIENT: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
     S3_ENDPOINT: endpoint,
     S3_BUCKET: bucket,
+    S3_REGION: region,
     S3_ACCESS_KEY_ID: accessKeyId,
     S3_SECRET_ACCESS_KEY: secretAccessKey,
     S3_FORCE_PATH_STYLE: forcePathStyle,
