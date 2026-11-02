@@ -16,6 +16,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.config.integration.ts",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
