@@ -45,4 +45,7 @@ RUN install -d /usr/share/postgresql-common/pgdg \
 
 WORKDIR /app
 
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
 CMD ["pnpm", "test:integration"]
