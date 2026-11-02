@@ -8,8 +8,9 @@ not a backup.
 - `age` and the **private key** (`key.txt`, the `AGE-SECRET-KEY-1...` line). The public key in `AGE_RECIPIENT` cannot decrypt.
 - MongoDB Database Tools (`mongorestore`) when restoring MongoDB backups.
 - PostgreSQL client tools (`pg_restore`, PostgreSQL 17) when restoring PostgreSQL backups.
-- R2 credentials with Object Read (the same bucket-scoped token works), the R2 endpoint URL (same value as your `R2_ENDPOINT` secret, e.g.
-  `https://<account>.r2.cloudflarestorage.com`), and the AWS CLI — or download the object from the Cloudflare dashboard, or use rclone (config below).
+- S3 credentials with Object Read (bucket-scoped API token or IAM user), the endpoint URL (when using Cloudflare R2, MinIO, or custom S3 provider,
+  e.g. `https://<account>.r2.cloudflarestorage.com`), and the AWS CLI — or download the object from your provider's dashboard, or use rclone (config
+  below).
 
 ## 1. Find the backup
 
@@ -17,30 +18,34 @@ The run's step summary (GitHub → Actions → the run, under either the `backup
 key and SHA-256 for each database. To list everything instead:
 
 ```bash
-aws s3 ls s3://mongodb-backups/backups/ \
-  --endpoint-url <R2_ENDPOINT>
+# AWS S3
+aws s3 ls s3://<S3_BUCKET>/backups/
+
+# Cloudflare R2 / MinIO (with custom endpoint)
+aws s3 ls s3://<S3_BUCKET>/backups/ \
+  --endpoint-url <S3_ENDPOINT>
 ```
 
 Archives follow engine-embedded naming under the shared `backups/` prefix:
 
-- MongoDB: `backups/mongodb-<YYYY-MM-DDTHHMMSSZ>.archive.gz.age`
-- PostgreSQL: `backups/postgres-<database>-<YYYY-MM-DDTHHMMSSZ>.dump.age`
+- MongoDB: `backups/mongodb/<YYYY-MM-DD_HH-MM-SS>/mongodb.archive.gz.age` (or `<database>.archive.gz.age` when `MONGODB_DB_BLOCKLIST` is configured)
+- PostgreSQL: `backups/postgres/<YYYY-MM-DD_HH-MM-SS>/<database>.dump.age`
 
-For a local destination, locate the archive in `LOCAL_BACKUP_DIR` by its object key. The local archive uses the same object key as the R2 archive.
+For a local destination, locate the archive in `LOCAL_BACKUP_DIR` by its object key. The local archive uses the same object key as the S3 archive.
 
 ## 2. Download, verify, decrypt
 
 ```bash
-export AWS_ACCESS_KEY_ID=<R2 access key id>
-export AWS_SECRET_ACCESS_KEY=<R2 secret access key>
+export AWS_ACCESS_KEY_ID=<access key id>
+export AWS_SECRET_ACCESS_KEY=<secret access key>
 
 # MongoDB
-aws s3 cp s3://mongodb-backups/backups/<MONGODB_OBJECT_KEY> ./backup.archive.gz.age \
-  --endpoint-url <R2_ENDPOINT>
+aws s3 cp s3://<S3_BUCKET>/backups/<MONGODB_OBJECT_KEY> ./backup.archive.gz.age \
+  [--endpoint-url <S3_ENDPOINT>]
 
 # PostgreSQL (per-database archive, e.g. for database 'app_db')
-aws s3 cp s3://mongodb-backups/backups/<POSTGRES_OBJECT_KEY> ./postgres-app_db.dump.age \
-  --endpoint-url <R2_ENDPOINT>
+aws s3 cp s3://<S3_BUCKET>/backups/<POSTGRES_OBJECT_KEY> ./postgres-app_db.dump.age \
+  [--endpoint-url <S3_ENDPOINT>]
 
 # Integrity check — this hash is of the ENCRYPTED file, and matches both the
 # run's step summary and the object's x-amz-meta-sha-256 metadata.
@@ -54,7 +59,7 @@ age -d -i key.txt -o postgres-app_db.dump postgres-app_db.dump.age
 
 `age -d` succeeding is itself proof the archive decrypts with your key.
 
-When restoring from `LOCAL_BACKUP_DIR`, skip the R2 download and use the local archive file as input to the integrity check and decryption. For
+When restoring from `LOCAL_BACKUP_DIR`, skip the S3 download and use the local archive file as input to the integrity check and decryption. For
 example:
 
 ```bash
@@ -67,19 +72,19 @@ age -d -i key.txt -o postgres-app_db.dump "$LOCAL_BACKUP_DIR/<POSTGRES_OBJECT_KE
 ### rclone alternative
 
 ```ini
-# rclone config — [r2] section
-[r2]
+# rclone config — [s3-backup] section for Cloudflare R2 or other S3 provider
+[s3-backup]
 type = s3
 provider = Cloudflare
-access_key_id = <R2 access key id>
-secret_access_key = <R2 secret access key>
-endpoint = <R2_ENDPOINT>
+access_key_id = <access key id>
+secret_access_key = <secret access key>
+endpoint = <S3_ENDPOINT>
 acl = private
 no_check_bucket = true
 ```
 
 ```bash
-rclone copy r2:mongodb-backups/backups/<OBJECT_KEY> . --include "*.age"
+rclone copy s3-backup:<S3_BUCKET>/backups/<OBJECT_KEY> . --include "*.age"
 ```
 
 ## 3. Restore (scratch cluster first)

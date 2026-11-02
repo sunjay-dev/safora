@@ -15,10 +15,13 @@ _Avoid_: Archive (reserved for the encrypted artifact)
 **Staging file**: An incomplete `<object-key>.part` copy written inside a local destination before its SHA-256 is verified and it is renamed to the
 object key. _Avoid_: Temp file
 
-**Destination**: A place a run delivers its archive. A run may deliver to several destinations at once; today an R2 bucket or a local folder. _Avoid_:
-Storage, backend, target
+**Destination**: A place a run delivers its archive. A run may deliver to several destinations at once; today an S3-compatible bucket or a local
+folder. _Avoid_: Storage, backend, target
 
-**Delivery**: Writing an archive to a destination and verifying the written copy matches the source. _Avoid_: Upload (R2-specific), copy (unverified)
+**S3**: The canonical offsite destination concept and storage protocol (AWS S3, Cloudflare R2, MinIO, etc.) where encrypted archives are uploaded,
+verified, and pruned. _Avoid_: R2 (legacy provider-specific name), bucket storage, object storage
+
+**Delivery**: Writing an archive to a destination and verifying the written copy matches the source. _Avoid_: Upload (S3-specific), copy (unverified)
 
 **Venue**: Where a run executes — a GitHub Actions runner or a local machine. Independent of destinations: any venue can deliver to any combination of
 destinations. _Avoid_: Runner, environment, machine
