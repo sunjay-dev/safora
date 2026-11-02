@@ -6,7 +6,7 @@ import type { DestinationOutcome } from "./destinations/deliver.js";
 import { renderSummary, writeSummary } from "./summary.js";
 
 const delivered: DestinationOutcome = {
-  id: "r2",
+  id: "s3",
   delivery: {
     location: "s3://mock-bucket/backups/mongodb-2026-10-24T021715Z.archive.gz.age",
     bytes: 31,
@@ -28,7 +28,7 @@ describe("renderSummary", () => {
     const summary = renderSummary([delivered, failed], 30, "backups/mongodb-2026-10-24T021715Z.archive.gz.age").join("\n");
 
     expect(summary).toContain("### MongoDB backup summary");
-    expect(summary).toContain("#### r2");
+    expect(summary).toContain("#### s3");
     expect(summary).toContain("#### local");
     expect(summary).toContain("**Failed destinations:** `local`");
   });
@@ -42,7 +42,7 @@ describe("renderSummary", () => {
     ).join("\n");
 
     expect(summary).toContain("### PostgreSQL backup summary (app_db)");
-    expect(summary).toContain("#### r2");
+    expect(summary).toContain("#### s3");
   });
 });
 

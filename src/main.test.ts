@@ -175,10 +175,10 @@ describe("runPostgresBackup multi-database flow", () => {
 
     const deliveredKeys: string[] = [];
     const mockDestination: Destination = {
-      id: "r2",
+      id: "s3",
       deliver: async (_archivePath, objectKey) => {
         if (objectKey.includes("db1")) {
-          throw new Error("R2 upload timeout");
+          throw new Error("S3 upload timeout");
         }
         deliveredKeys.push(objectKey);
         return { location: `s3://bucket/${objectKey}`, bytes: 42, sha256: "mocksha" };
@@ -200,7 +200,7 @@ describe("runPostgresBackup multi-database flow", () => {
           encrypt: fakeEncrypt,
           writeSummary: async () => {},
         }),
-      ).rejects.toThrowError(/One or more databases failed to back up: db1: One or more destinations failed: r2 \(delivery\): R2 upload timeout/);
+      ).rejects.toThrowError(/One or more databases failed to back up: db1: One or more destinations failed: s3 \(delivery\): S3 upload timeout/);
 
       // Verify db2 was still delivered!
       expect(deliveredKeys).toEqual(["backups/postgres/2026-10-25_12-00-00/db2.dump.age"]);
