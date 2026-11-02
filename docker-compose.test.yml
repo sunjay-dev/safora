@@ -30,7 +30,38 @@ services:
       timeout: 3s
       retries: 10
 
+  mongodb:
+    image: mongo:7
+    ports:
+      - "${TEST_MONGODB_PORT:-27017}:27017"
+    volumes:
+      - ./tests/fixtures/mongo-init.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "${TEST_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - ./tests/fixtures/postgres-init.sql:/docker-entrypoint-initdb.d/init-postgres.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
   test-runner:
+    profiles: ["test"]
     build:
       context: .
       dockerfile: Dockerfile.test-runner
@@ -45,10 +76,18 @@ services:
       - S3_BUCKET=test-bucket
       - S3_REGION=us-east-1
       - S3_FORCE_PATH_STYLE=true
+      - MONGODB_URI=mongodb://mongodb:27017
+      - POSTGRESQL_URI=postgresql://postgres:postgres@postgres:5432/postgres
     depends_on:
       minio-init:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     command: ["pnpm", "test:integration"]
 
 volumes:
   minio_data:
+  mongo_data:
+  postgres_data:
