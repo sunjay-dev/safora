@@ -24,7 +24,7 @@ export async function uploadAndVerify(
       Body: createReadStream(filePath),
       ContentLength: bytes,
       ContentType: "application/octet-stream",
-      Metadata: { "sha-256": sha256 }, // surfaced by R2 as x-amz-meta-sha-256
+      Metadata: { "sha-256": sha256 }, // surfaced by S3/R2 as x-amz-meta-sha-256
     },
     partSize: 16 * 1024 * 1024,
     queueSize: 4,

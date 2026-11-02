@@ -201,23 +201,7 @@ export const S3EnvSchema = z
 
     // 3. Region resolution
     const s3Region = env.S3_REGION?.trim();
-    let resolvedRegion: string | undefined;
-    if (s3Region && s3Region !== "") {
-      resolvedRegion = s3Region;
-    } else {
-      let isR2Endpoint = false;
-      if (resolvedEndpoint) {
-        try {
-          const url = new URL(resolvedEndpoint);
-          if (url.hostname.endsWith(".r2.cloudflarestorage.com") || url.hostname === "r2.cloudflarestorage.com") {
-            isR2Endpoint = true;
-          }
-        } catch {
-          // ignore
-        }
-      }
-      resolvedRegion = isR2Endpoint ? "auto" : undefined;
-    }
+    const resolvedRegion = s3Region && s3Region !== "" ? s3Region : undefined;
 
     // 4. Credentials resolution
     const s3KeyTrimmed = env.S3_ACCESS_KEY_ID?.trim();
