@@ -41,24 +41,32 @@ describe("buildS3Client", () => {
     expect(typeof client.config.credentials).toBe("function");
   });
 
-  it("defaults region to 'auto' when S3_REGION is unset and endpoint is an R2 endpoint", async () => {
+  it("configures region to 'auto' when S3_REGION is explicitly set to 'auto'", async () => {
     const config = loadConfig({
       ...baseEnv,
       S3_ENDPOINT: "https://0123456789abcdef.r2.cloudflarestorage.com",
+      S3_REGION: "auto",
     });
 
     const client = buildS3Client(config);
     expect(await client.config.region()).toBe("auto");
   });
 
-  it("leaves region for AWS SDK resolution when S3_REGION is unset and endpoint is not R2", async () => {
-    const config = loadConfig({
+  it("leaves region for AWS SDK resolution when S3_REGION is unset, even with endpoint", async () => {
+    const configWithEndpoint = loadConfig({
+      ...baseEnv,
+      S3_ENDPOINT: "https://0123456789abcdef.r2.cloudflarestorage.com",
+    });
+
+    const clientWithEndpoint = buildS3Client(configWithEndpoint);
+    expect(typeof clientWithEndpoint.config.region).toBe("function");
+
+    const configWithoutEndpoint = loadConfig({
       ...baseEnv,
     });
 
-    const client = buildS3Client(config);
-    // When region is not supplied, region provider is a lazy function resolving ambiently
-    expect(typeof client.config.region).toBe("function");
+    const clientWithoutEndpoint = buildS3Client(configWithoutEndpoint);
+    expect(typeof clientWithoutEndpoint.config.region).toBe("function");
   });
 
   it("configures forcePathStyle to false by default or when explicitly set", async () => {

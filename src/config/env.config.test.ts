@@ -493,11 +493,23 @@ describe("loadConfig S3 configuration matrix", () => {
       expect(config.S3_REGION).toBe("us-west-2");
     });
 
-    it("defaults to 'auto' when S3_REGION is unset and endpoint is a Cloudflare R2 endpoint", () => {
+    it("leaves region undefined when S3_REGION is unset, even if endpoint is a Cloudflare R2 endpoint", () => {
       const config = loadConfig({
         ...validBaseEnv,
         S3_BUCKET: "my-bucket",
         S3_ENDPOINT: "https://0123456789abcdef.r2.cloudflarestorage.com",
+        S3_ACCESS_KEY_ID: "key",
+        S3_SECRET_ACCESS_KEY: "secret",
+      });
+      expect(config.S3_REGION).toBeUndefined();
+    });
+
+    it("uses 'auto' when S3_REGION is explicitly set to 'auto'", () => {
+      const config = loadConfig({
+        ...validBaseEnv,
+        S3_BUCKET: "my-bucket",
+        S3_ENDPOINT: "https://0123456789abcdef.r2.cloudflarestorage.com",
+        S3_REGION: "auto",
         S3_ACCESS_KEY_ID: "key",
         S3_SECRET_ACCESS_KEY: "secret",
       });
