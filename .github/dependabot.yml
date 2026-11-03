@@ -1,21 +1,36 @@
 version: 2
 updates:
-  # Keep npm dependencies up to date
+  # Keep npm dependencies up to date.
+  # Dependabot has no native compatibility-score threshold in dependabot.yml —
+  # the score is computed per-PR after opening, not before. The best available
+  # proxy is ignoring major-version bumps: patch and minor updates consistently
+  # score >90% compatibility in Dependabot's own dataset, while major bumps
+  # frequently score below that threshold.
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    ignore:
+      # Skip major version bumps — these are the updates most likely to score
+      # below 90% compatibility. Review them manually when ready to upgrade.
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     groups:
       aws-sdk:
         patterns:
           - "@aws-sdk/*"
 
-  # Keep GitHub Actions pinned SHAs up to date
+  # Keep GitHub Actions up to date (patch/minor only — same rationale as above).
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
