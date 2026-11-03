@@ -6,7 +6,7 @@ Engineering agent configuration for this repo.
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`sunjay-dev/database-backup`), managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues (`sunjay-dev/safora`), managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

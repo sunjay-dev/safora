@@ -27,7 +27,7 @@ export function getTestS3Client() {
     DESTINATIONS: "s3",
     ENGINE: "postgres",
     POSTGRESQL_URI: "postgresql://postgres:postgres@localhost:5433/postgres",
-    AGE_RECIPIENT: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+    AGE_RECIPIENT: "age1a4cjc4c8wrw9gr6398fwfr758pcyz7h07qytcx7n98avwxcllfss9tphnr",
     S3_ENDPOINT: params.endpoint,
     S3_BUCKET: params.bucket,
     S3_REGION: params.region,

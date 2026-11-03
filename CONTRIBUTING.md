@@ -22,13 +22,35 @@ Thank you for your interest in contributing! This document outlines how to get s
 pnpm run build
 ```
 
+### Local development databases
+
+The integration tests run against real MongoDB, PostgreSQL, and MinIO (S3-compatible) instances. The easiest way to spin them all up is via Docker Compose:
+
+```bash
+# Start MongoDB, PostgreSQL, and MinIO (stays up until you stop it)
+docker compose -f docker-compose.test.yml up -d --wait
+
+# Tear down (removes volumes too)
+docker compose -f docker-compose.test.yml down -v
+```
+
+The services are then reachable at:
+
+| Service    | Default address                                          |
+| ---------- | -------------------------------------------------------- |
+| MongoDB    | `mongodb://localhost:27017`                              |
+| PostgreSQL | `postgresql://postgres:postgres@localhost:5433/postgres` |
+| MinIO      | `http://localhost:9000` (console: `http://localhost:9001`) |
+
+Copy `.env.example` to `.env` and set `ENGINE`, `MONGODB_URI` or `POSTGRESQL_URI`, and the `S3_*` variables to point at these local instances for a `pnpm run backup:local` run.
+
 ### Running Tests
 
 ```bash
-# Unit tests
+# Unit tests (no external services needed)
 pnpm test
 
-# Integration tests (requires a running MongoDB instance via Docker)
+# Integration tests (requires Docker services above to be running)
 pnpm run test:integration
 ```
 
