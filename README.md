@@ -1,4 +1,6 @@
-# mongodb-backups
+# Safora
+
+![Safora preview](assets/preview.webp)
 
 Daily, encrypted MongoDB Atlas and PostgreSQL backups delivered to S3-compatible storage (AWS S3, Cloudflare R2, MinIO, etc.) and/or a local folder,
 run from GitHub Actions or a local machine. A Node.js + TypeScript orchestrator runs the pipeline: `mongodump` creates a single cluster archive or
@@ -43,7 +45,7 @@ Each carrying its SHA-256 as `x-amz-meta-sha-256` metadata. The local destinatio
 ## Repository layout
 
 ```
-mongodb-backups/
+safora/
 ├── .github/workflows/backup.yml   # scheduler: daily 00:00 UTC + manual dispatch (parallel MongoDB & PostgreSQL jobs)
 ├── src/
 │   ├── main.ts                    # pipeline orchestration + top-level error handling
@@ -89,16 +91,16 @@ mongodb-backups/
 
 ## One-time setup
 
-1. **Repository** — create the _private_ repo `mongodb-backups` and push these files.
+1. **Repository** — create the _private_ repo `safora` and push these files.
 2. **age keys** — install [age](https://github.com/FiloSottile/age), then `age-keygen -o key.txt`:
    - the `# public key: age1...` line → GitHub secret `AGE_RECIPIENT`
    - the `AGE-SECRET-KEY-1...` private line → store offline (password manager / offline media). **If you lose it, every backup is unrecoverable.**
      Never commit it.
-3. **S3-compatible storage bucket** — create a private bucket (e.g. `mongodb-backups`) with your chosen storage provider:
+3. **S3-compatible storage bucket** — create a private bucket (e.g. `safora`) with your chosen storage provider:
    - **AWS S3**: create a bucket in your chosen region (e.g. `us-east-1`). Configure IAM least-privilege credentials or OIDC role with `s3:PutObject`,
      `s3:GetObject`, `s3:ListBucket`, and `s3:DeleteObject`.
-   - **Cloudflare R2**: create the bucket `mongodb-backups`; then under R2 → Manage R2 API Tokens → Create API Token → permission _Object Read &
-     Write_, scope _apply to specific bucket only_ → `mongodb-backups`. Note the Access Key ID, Secret Access Key, and Account ID.
+   - **Cloudflare R2**: create the bucket `safora`; then under R2 → Manage R2 API Tokens → Create API Token → permission _Object Read &
+     Write_, scope _apply to specific bucket only_ → `safora`. Note the Access Key ID, Secret Access Key, and Account ID.
    - **MinIO / Self-Hosted**: create a bucket and access key / secret key with read/write access.
 4. **GitHub secrets** (Settings → Secrets and variables → Actions → _Secrets_):
    - `MONGODB_URI`: connection string for MongoDB Atlas backup user.
@@ -151,7 +153,7 @@ mongodb-backups/
      > `verify-ca`) to prevent man-in-the-middle attacks by verifying the server certificate.
    - Inbound IP restriction at the host/VPS firewall is also strongly recommended where practical.
    - Save the resulting connection string to GitHub secret `POSTGRESQL_URI`.
-9. **First run** — Actions → **MongoDB Atlas Backup** → Run workflow. Both `backup` and `postgres` jobs will run in parallel.
+9. **First run** — Actions → **Database Backup** → Run workflow. Both the `backup` (MongoDB) and `postgres` jobs will run in parallel.
 
 ## Provider configuration examples
 
@@ -180,7 +182,7 @@ S3_REGION=us-east-1
 ### 2. Cloudflare R2
 
 ```env
-S3_BUCKET=mongodb-backups
+S3_BUCKET=safora
 S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 S3_REGION=auto
 S3_ACCESS_KEY_ID=<R2_TOKEN_ACCESS_KEY_ID>
@@ -202,7 +204,7 @@ S3_FORCE_PATH_STYLE=true
 
 ## Running
 
-- **Manual**: Actions → MongoDB Atlas Backup → Run workflow. Both the MongoDB (`backup`) and PostgreSQL (`postgres`) jobs run concurrently.
+- **Manual**: Actions → **Database Backup** → Run workflow. Both the MongoDB (`backup`) and PostgreSQL (`postgres`) jobs run concurrently.
 - **Scheduled**: daily at 00:00 UTC (05:00 Pakistan time). The two parallel jobs run independently on the same schedule; either job failing leaves the
   other green, with independent failure notifications and step summaries. Midnight UTC is a busy time for GitHub's schedulers, so runs may start
   several minutes late — but it still fires once per day.
@@ -311,12 +313,8 @@ of contents). The full download → verify → restore procedure lives in [docs/
 
 ## Caveats
 
-- This repository is prepared but **not yet tested against your actual Atlas cluster, PostgreSQL server, or S3 bucket**. Run it manually, confirm the
-  encrypted object appears in S3, and complete a test restore before relying on it.
 - The 30-minute job timeout and 20-minute dump timeout assume a small/medium database; raise both for larger data sets.
 - Retention is enforced by this pipeline. An S3 / R2 lifecycle rule on `backups/` makes a decent second line of defense.
-- Dependencies are pinned by the committed `pnpm-lock.yaml`; CI installs with `--frozen-lockfile`, so every run builds against exactly what was
-  verified locally. Update the lockfile with `pnpm install` after changing `package.json`, and commit it together.
 - Temporary credential files (`mongodump.conf` and `.pgpass`) are protected with `chmod 600` on POSIX systems. Windows does not enforce those Unix
   permission bits through this call, so this protection is largely a no-op there; keep the local account and temporary folder private.
 - The PostgreSQL dump produces a custom-format archive (`-Fc`) per non-template database. Cluster-wide global objects (roles, users, tablespaces) are

@@ -1,4 +1,4 @@
-name: MongoDB Atlas Backup
+name: Database Backup
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: mongodb-backup
+  group: database-backup
   cancel-in-progress: false
 
 permissions:

@@ -1,4 +1,4 @@
-# Contributing to mongodb-backups
+# Contributing to Safora
 
 Thank you for your interest in contributing! This document outlines how to get started.
 
