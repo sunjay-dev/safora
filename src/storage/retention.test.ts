@@ -11,7 +11,7 @@ import { pruneExpiredBackups } from "./retention.js";
 
 const baseConfig = loadConfig({
   MONGODB_URI: "mongodb://localhost:27017/test",
-  AGE_RECIPIENT: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+  AGE_RECIPIENT: "age1a4cjc4c8wrw9gr6398fwfr758pcyz7h07qytcx7n98avwxcllfss9tphnr",
   S3_BUCKET: "retention-test-bucket",
   RETENTION_DAYS: "7",
 });
